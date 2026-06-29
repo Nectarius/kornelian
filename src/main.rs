@@ -1,0 +1,67 @@
+#![allow(non_snake_case)]
+use dioxus::prelude::*;
+
+mod components;
+mod db;
+mod models;
+mod services;
+
+use components::admin::{
+    AccountManagementView as AccountManagement, QuizAdminView as QuizAdmin, SettingsPage,
+};
+use components::layout::Layout;
+use components::user::{Dashboard, ResultsHistory, TakeQuizSelection};
+
+// =========================================================================
+// DIOXUS APPLICATION ROUTER DEFINITION
+// =========================================================================
+#[derive(Routable, Clone, Debug, PartialEq)]
+#[rustfmt::skip]
+pub enum Route {
+    #[layout(Layout)]
+        #[route("/")]
+        Dashboard {},
+        #[route("/admin/quizzes")]
+        QuizAdmin {},
+        #[route("/quiz/execute")]
+        TakeQuizSelection {},
+        #[route("/history/submissions")]
+        ResultsHistory {},
+        #[route("/admin/accounts")]
+        AccountManagement {},
+        #[route("/admin/settings")]
+        SettingsPage {},
+    #[end_layout]
+    #[route("/:..route")]
+    PageNotFound { route: Vec<String> },
+}
+
+fn main() {
+    // Corrected logging setup using standard log levels
+    dioxus_logger::init(dioxus_logger::tracing::Level::INFO)
+        .expect("Failed to bind log framework.");
+
+    #[cfg(feature = "server")]
+    {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            crate::db::database::init_pool().await;
+        });
+    }
+    dotenvy::dotenv().ok();
+    LaunchBuilder::new().launch(App);
+}
+
+fn App() -> Element {
+    rsx! { Router::<Route> {} }
+}
+
+#[component]
+fn PageNotFound(route: Vec<String>) -> Element {
+    rsx! {
+        div {
+            h1 { "404 – Page Not Found" }
+            p { "The path \"/{route.join(\"/\")}\" does not exist." }
+            Link { to: Route::Dashboard {}, "Go Home" }
+        }
+    }
+}
