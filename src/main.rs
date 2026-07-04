@@ -41,13 +41,22 @@ fn main() {
     dioxus_logger::init(dioxus_logger::tracing::Level::INFO)
         .expect("Failed to bind log framework.");
 
+    dotenvy::dotenv().ok();
     #[cfg(feature = "server")]
     {
+        let public_dir = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("target/debug/public");
+        if let Err(err) = std::fs::create_dir_all(&public_dir) {
+            eprintln!("Failed to create public directory {public_dir:?}: {err}");
+        }
+
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            crate::db::database::init_pool().await;
+            if let Err(err) = crate::db::database::init_pool().await {
+                eprintln!("Database initialization failed: {err}");
+            }
         });
     }
-    dotenvy::dotenv().ok();
     LaunchBuilder::new().launch(App);
 }
 

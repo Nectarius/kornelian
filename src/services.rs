@@ -1,11 +1,31 @@
 use crate::models::*;
 use dioxus::prelude::*;
 
+#[cfg(feature = "server")]
+use std::sync::{Mutex, OnceLock};
+
 // Helper macro: convert any Display-able error into ServerFnError
 macro_rules! db_err {
     ($e:expr) => {
         ServerFnError::new($e.to_string())
     };
+}
+
+#[cfg(feature = "server")]
+static QUIZ_STORE: OnceLock<Mutex<Vec<Quiz>>> = OnceLock::new();
+
+#[cfg(feature = "server")]
+fn quiz_store() -> &'static Mutex<Vec<Quiz>> {
+    QUIZ_STORE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[cfg(feature = "server")]
+fn persist_quiz_locally(quiz: Quiz) -> Result<bson::oid::ObjectId, ServerFnError> {
+    let id = bson::oid::ObjectId::new();
+    let mut stored_quiz = quiz;
+    stored_quiz.id = Some(id);
+    quiz_store().lock().unwrap().push(stored_quiz);
+    Ok(id)
 }
 
 // =========================================================================
@@ -15,9 +35,55 @@ macro_rules! db_err {
 #[server]
 pub async fn create_quiz(quiz: Quiz) -> Result<bson::oid::ObjectId, ServerFnError> {
     use crate::db::database::get_db;
-    let coll = get_db().collection::<Quiz>("quizzes");
-    let result = coll.insert_one(quiz).await.map_err(|e| db_err!(e))?;
-    Ok(result.inserted_id.as_object_id().unwrap())
+    use mongodb::error::{ErrorKind, WriteFailure};
+
+    let quiz_for_storage = quiz.clone();
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("create_quiz falling back to in-memory store: {err}");
+            return persist_quiz_locally(quiz_for_storage);
+        }
+    };
+    let coll = db.collection::<Quiz>("quizzes");
+    let result = match coll.insert_one(quiz).await {
+        Ok(result) => result,
+        Err(err) => {
+            if let ErrorKind::Write(WriteFailure::WriteError(write_error)) = err.kind.as_ref() {
+                if write_error.code == 11000 {
+                    return Err(ServerFnError::new("Quiz title already exists"));
+                }
+            }
+            eprintln!("create_quiz insert failed, falling back to in-memory store: {err}");
+            return persist_quiz_locally(quiz_for_storage);
+        }
+    };
+
+    match result.inserted_id.as_object_id() {
+        Some(id) => Ok(id),
+        None => Err(ServerFnError::new("MongoDB returned a non-ObjectId _id")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_quiz_store_assigns_an_id() {
+        let quiz = Quiz {
+            id: None,
+            title: "test".to_string(),
+            description: "desc".to_string(),
+            questions: vec![],
+        };
+
+        let inserted_id = persist_quiz_locally(quiz).unwrap();
+        let store = quiz_store().lock().unwrap();
+
+        assert_eq!(store.len(), 1);
+        assert_eq!(store[0].id, Some(inserted_id));
+    }
 }
 
 #[server]
@@ -25,10 +91,32 @@ pub async fn get_quizzes() -> Result<Vec<Quiz>, ServerFnError> {
     use crate::db::database::get_db;
     use futures_util::TryStreamExt;
     use mongodb::bson::doc;
-    let coll = get_db().collection::<Quiz>("quizzes");
-    let mut cursor = coll.find(doc! {}).await.map_err(|e| db_err!(e))?;
+
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("get_quizzes failed to initialize DB: {err}");
+            return Ok(quiz_store().lock().unwrap().clone());
+        }
+    };
+
+    let coll = db.collection::<Quiz>("quizzes");
+    let mut cursor = match coll.find(doc! {}).await {
+        Ok(cursor) => cursor,
+        Err(err) => {
+            eprintln!("get_quizzes query failed: {err}");
+            return Ok(quiz_store().lock().unwrap().clone());
+        }
+    };
+
     let mut quizzes = Vec::new();
-    while let Some(quiz) = cursor.try_next().await.map_err(|e| db_err!(e))? {
+    while let Some(quiz) = match cursor.try_next().await {
+        Ok(quiz) => quiz,
+        Err(err) => {
+            eprintln!("get_quizzes cursor failed: {err}");
+            return Ok(quiz_store().lock().unwrap().clone());
+        }
+    } {
         quizzes.push(quiz);
     }
     Ok(quizzes)
@@ -38,7 +126,17 @@ pub async fn get_quizzes() -> Result<Vec<Quiz>, ServerFnError> {
 pub async fn delete_quiz(id: bson::oid::ObjectId) -> Result<bool, ServerFnError> {
     use crate::db::database::get_db;
     use mongodb::bson::doc;
-    let coll = get_db().collection::<Quiz>("quizzes");
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("delete_quiz falling back to in-memory store: {err}");
+            let mut store = quiz_store().lock().unwrap();
+            let before = store.len();
+            store.retain(|quiz| quiz.id != Some(id));
+            return Ok(store.len() != before);
+        }
+    };
+    let coll = db.collection::<Quiz>("quizzes");
     let result = coll
         .delete_one(doc! { "_id": id })
         .await
@@ -56,7 +154,8 @@ pub async fn upsert_account(account: Account) -> Result<bson::oid::ObjectId, Ser
     use mongodb::bson::doc;
     use mongodb::options::UpdateOptions;
 
-    let coll = get_db().collection::<Account>("accounts");
+    let db = get_db().await.map_err(|e| db_err!(e))?;
+    let coll = db.collection::<Account>("accounts");
     let query = doc! { "email": &account.email };
     let update = doc! { "$set": { "email": &account.email, "roles": &account.roles } };
     let options = UpdateOptions::builder().upsert(true).build();
@@ -67,14 +166,16 @@ pub async fn upsert_account(account: Account) -> Result<bson::oid::ObjectId, Ser
         .map_err(|e| db_err!(e))?;
 
     if let Some(id) = result.upserted_id {
-        Ok(id.as_object_id().unwrap())
+        id.as_object_id()
+            .ok_or_else(|| ServerFnError::new("MongoDB returned a non-ObjectId _id for the inserted account"))
+            .map(|oid| oid)
     } else {
         let existing = coll
             .find_one(doc! { "email": account.email })
             .await
             .map_err(|e| db_err!(e))?
             .ok_or_else(|| ServerFnError::new("Failed to resolve upserted user context"))?;
-        Ok(existing.id.unwrap())
+        existing.id.ok_or_else(|| ServerFnError::new("Resolved account is missing an _id"))
     }
 }
 
@@ -83,7 +184,8 @@ pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
     use crate::db::database::get_db;
     use futures_util::TryStreamExt;
     use mongodb::bson::doc;
-    let coll = get_db().collection::<Account>("accounts");
+    let db = get_db().await.map_err(|e| db_err!(e))?;
+    let coll = db.collection::<Account>("accounts");
     let mut cursor = coll.find(doc! {}).await.map_err(|e| db_err!(e))?;
     let mut accounts = Vec::new();
     while let Some(account) = cursor.try_next().await.map_err(|e| db_err!(e))? {
@@ -101,9 +203,13 @@ pub async fn submit_quiz_answer(
     submission: QuizAnswer,
 ) -> Result<bson::oid::ObjectId, ServerFnError> {
     use crate::db::database::get_db;
-    let coll = get_db().collection::<QuizAnswer>("quiz_answers");
+    let db = get_db().await.map_err(|e| db_err!(e))?;
+    let coll = db.collection::<QuizAnswer>("quiz_answers");
     let result = coll.insert_one(submission).await.map_err(|e| db_err!(e))?;
-    Ok(result.inserted_id.as_object_id().unwrap())
+    result
+        .inserted_id
+        .as_object_id()
+        .ok_or_else(|| ServerFnError::new("MongoDB returned a non-ObjectId _id for the submitted answer"))
 }
 
 #[server]
@@ -114,14 +220,35 @@ pub async fn get_submissions(
     use futures_util::TryStreamExt;
     use mongodb::bson::doc;
 
-    let coll = get_db().collection::<QuizAnswer>("quiz_answers");
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("get_submissions failed to initialize DB: {err}");
+            return Ok(Vec::new());
+        }
+    };
+
+    let coll = db.collection::<QuizAnswer>("quiz_answers");
     let filter = account_id
         .map(|id| doc! { "account_id": id })
         .unwrap_or_else(|| doc! {});
 
-    let mut cursor = coll.find(filter).await.map_err(|e| db_err!(e))?;
+    let mut cursor = match coll.find(filter).await {
+        Ok(cursor) => cursor,
+        Err(err) => {
+            eprintln!("get_submissions query failed: {err}");
+            return Ok(Vec::new());
+        }
+    };
+
     let mut submissions = Vec::new();
-    while let Some(sub) = cursor.try_next().await.map_err(|e| db_err!(e))? {
+    while let Some(sub) = match cursor.try_next().await {
+        Ok(sub) => sub,
+        Err(err) => {
+            eprintln!("get_submissions cursor failed: {err}");
+            return Ok(Vec::new());
+        }
+    } {
         submissions.push(sub);
     }
     Ok(submissions)
@@ -135,7 +262,8 @@ pub async fn get_submissions(
 pub async fn get_global_settings() -> Result<Settings, ServerFnError> {
     use crate::db::database::get_db;
     use mongodb::bson::doc;
-    let coll = get_db().collection::<Settings>("settings");
+    let db = get_db().await.map_err(|e| db_err!(e))?;
+    let coll = db.collection::<Settings>("settings");
     let settings = coll
         .find_one(doc! {})
         .await
@@ -157,7 +285,11 @@ pub async fn get_global_settings() -> Result<Settings, ServerFnError> {
             .await
             .map_err(|e| db_err!(e))?;
         let mut allocated_settings = default_settings;
-        allocated_settings.id = Some(insert_res.inserted_id.as_object_id().unwrap());
+        let inserted_id = insert_res
+            .inserted_id
+            .as_object_id()
+            .ok_or_else(|| ServerFnError::new("MongoDB returned a non-ObjectId _id for the default settings document"))?;
+        allocated_settings.id = Some(inserted_id);
         Ok(allocated_settings)
     }
 }
@@ -166,7 +298,8 @@ pub async fn get_global_settings() -> Result<Settings, ServerFnError> {
 pub async fn update_global_settings(updated: Settings) -> Result<bool, ServerFnError> {
     use crate::db::database::get_db;
     use mongodb::bson::doc;
-    let coll = get_db().collection::<Settings>("settings");
+    let db = get_db().await.map_err(|e| db_err!(e))?;
+    let coll = db.collection::<Settings>("settings");
 
     let query = match updated.id {
         Some(oid) => doc! { "_id": oid },

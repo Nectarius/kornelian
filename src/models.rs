@@ -6,28 +6,35 @@ use chrono::{DateTime, Utc};
 // 1. QUIZ COLLECTION MODELS
 // =========================================================================
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct Quiz {
-    #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
-    pub title: String, 
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub questions: Vec<Question>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct Question {
-    #[serde(rename = "_id")]
-    pub id: ObjectId, 
+    #[serde(default, rename = "_id")]
+    pub id: ObjectId,
+    #[serde(default)]
     pub text: String,
+    #[serde(default)]
     pub answer_choices: Vec<AnswerChoice>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct AnswerChoice {
-    #[serde(rename = "_id")]
+    #[serde(default, rename = "_id")]
     pub id: ObjectId,
+    #[serde(default)]
     pub text: String,
+    #[serde(default)]
     pub correct_response: bool,
 }
 
