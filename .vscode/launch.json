@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+       "name": "Debug Dioxus Fullstack Server",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/dx/taffeite/debug/web/server",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "dx-build-web"
+    },
+  ]
+}

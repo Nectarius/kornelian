@@ -1,0 +1,16 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dx-build-web",
+      "type": "shell",
+      "command": "dx",
+      "options": {
+        "cwd": "${workspaceFolder}" // 👈 Navigates into the subdirectory containing Cargo.toml
+      },
+      "args": ["build", "--platform", "web"],
+      "problemMatcher": ["$rustc"],
+      "group": "build"
+    }
+  ]
+}
