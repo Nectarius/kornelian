@@ -51,11 +51,14 @@ fn main() {
             eprintln!("Failed to create public directory {public_dir:?}: {err}");
         }
 
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            if let Err(err) = crate::db::database::init_pool().await {
-                eprintln!("Database initialization failed: {err}");
-            }
-        });
+        // NOTE: The MongoDB connection pool is intentionally *not* warmed up here.
+        // The driver spawns background connection-monitoring tasks tied to whichever
+        // Tokio runtime creates the `Client`. Warming it up in a short-lived runtime
+        // that gets dropped before the server's own runtime starts would kill those
+        // monitoring tasks, leaving a client whose topology can never refresh (causing
+        // spurious "server selection timeout" errors once real traffic starts).
+        // Instead, `db::database::get_db()` lazily connects on first use, from within
+        // the same runtime that serves requests.
     }
     LaunchBuilder::new().launch(App);
 }

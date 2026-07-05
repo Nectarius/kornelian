@@ -28,6 +28,108 @@ fn persist_quiz_locally(quiz: Quiz) -> Result<bson::oid::ObjectId, ServerFnError
     Ok(id)
 }
 
+#[cfg(feature = "server")]
+static SUBMISSION_STORE: OnceLock<Mutex<Vec<QuizAnswer>>> = OnceLock::new();
+
+#[cfg(feature = "server")]
+fn submission_store() -> &'static Mutex<Vec<QuizAnswer>> {
+    SUBMISSION_STORE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[cfg(feature = "server")]
+fn persist_submission_locally(
+    submission: QuizAnswer,
+) -> Result<bson::oid::ObjectId, ServerFnError> {
+    let id = bson::oid::ObjectId::new();
+    let mut stored_submission = submission;
+    stored_submission.id = Some(id);
+    submission_store().lock().unwrap().push(stored_submission);
+    Ok(id)
+}
+
+#[cfg(feature = "server")]
+fn local_submissions(account_id: Option<bson::oid::ObjectId>) -> Vec<QuizAnswer> {
+    let store = submission_store().lock().unwrap();
+    match account_id {
+        Some(id) => store
+            .iter()
+            .filter(|s| s.account_id == id)
+            .cloned()
+            .collect(),
+        None => store.clone(),
+    }
+}
+
+#[cfg(feature = "server")]
+static ACCOUNT_STORE: OnceLock<Mutex<Vec<Account>>> = OnceLock::new();
+
+#[cfg(feature = "server")]
+fn account_store() -> &'static Mutex<Vec<Account>> {
+    ACCOUNT_STORE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[cfg(feature = "server")]
+static SETTINGS_STORE: OnceLock<Mutex<Option<Settings>>> = OnceLock::new();
+
+#[cfg(feature = "server")]
+fn settings_store() -> &'static Mutex<Option<Settings>> {
+    SETTINGS_STORE.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(feature = "server")]
+fn default_settings() -> Settings {
+    Settings {
+        id: None,
+        current: "v1.0.0".to_string(),
+        applied_at: chrono::Utc::now(),
+        applied_by: "system_initializer@internal.net".to_string(),
+        question_count: 10,
+        quiz_choice: "Standard Rules".to_string(),
+    }
+}
+
+#[cfg(feature = "server")]
+fn local_global_settings() -> Settings {
+    let mut store = settings_store().lock().unwrap();
+    if store.is_none() {
+        let mut settings = default_settings();
+        settings.id = Some(bson::oid::ObjectId::new());
+        *store = Some(settings);
+    }
+    store.clone().unwrap()
+}
+
+#[cfg(feature = "server")]
+fn update_local_global_settings(updated: Settings) -> bool {
+    let mut store = settings_store().lock().unwrap();
+    let mut new_settings = updated;
+    new_settings.applied_at = chrono::Utc::now();
+    if new_settings.id.is_none() {
+        new_settings.id = store
+            .as_ref()
+            .and_then(|s| s.id)
+            .or_else(|| Some(bson::oid::ObjectId::new()));
+    }
+    *store = Some(new_settings);
+    true
+}
+
+#[cfg(feature = "server")]
+fn upsert_account_locally(account: Account) -> Result<bson::oid::ObjectId, ServerFnError> {
+    let mut store = account_store().lock().unwrap();
+    if let Some(existing) = store.iter_mut().find(|a| a.email == account.email) {
+        existing.roles = account.roles.clone();
+        return existing
+            .id
+            .ok_or_else(|| ServerFnError::new("Locally stored account is missing an _id"));
+    }
+    let id = bson::oid::ObjectId::new();
+    let mut stored_account = account;
+    stored_account.id = Some(id);
+    store.push(stored_account);
+    Ok(id)
+}
+
 // =========================================================================
 // 1. QUIZ CRUD SERVER OPERATIONS
 // =========================================================================
@@ -154,28 +256,43 @@ pub async fn upsert_account(account: Account) -> Result<bson::oid::ObjectId, Ser
     use mongodb::bson::doc;
     use mongodb::options::UpdateOptions;
 
-    let db = get_db().await.map_err(|e| db_err!(e))?;
+    let account_for_storage = account.clone();
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("upsert_account falling back to in-memory store: {err}");
+            return upsert_account_locally(account_for_storage);
+        }
+    };
     let coll = db.collection::<Account>("accounts");
     let query = doc! { "email": &account.email };
     let update = doc! { "$set": { "email": &account.email, "roles": &account.roles } };
     let options = UpdateOptions::builder().upsert(true).build();
-    let result = coll
-        .update_one(query, update)
-        .with_options(options)
-        .await
-        .map_err(|e| db_err!(e))?;
+    let result = match coll.update_one(query, update).with_options(options).await {
+        Ok(result) => result,
+        Err(err) => {
+            eprintln!("upsert_account write failed, falling back to in-memory store: {err}");
+            return upsert_account_locally(account_for_storage);
+        }
+    };
 
     if let Some(id) = result.upserted_id {
-        id.as_object_id()
-            .ok_or_else(|| ServerFnError::new("MongoDB returned a non-ObjectId _id for the inserted account"))
-            .map(|oid| oid)
+        id.as_object_id().ok_or_else(|| {
+            ServerFnError::new("MongoDB returned a non-ObjectId _id for the inserted account")
+        })
     } else {
-        let existing = coll
-            .find_one(doc! { "email": account.email })
-            .await
-            .map_err(|e| db_err!(e))?
-            .ok_or_else(|| ServerFnError::new("Failed to resolve upserted user context"))?;
-        existing.id.ok_or_else(|| ServerFnError::new("Resolved account is missing an _id"))
+        match coll.find_one(doc! { "email": &account.email }).await {
+            Ok(Some(existing)) => existing
+                .id
+                .ok_or_else(|| ServerFnError::new("Resolved account is missing an _id")),
+            Ok(None) => Err(ServerFnError::new(
+                "Failed to resolve upserted user context",
+            )),
+            Err(err) => {
+                eprintln!("upsert_account lookup failed, falling back to in-memory store: {err}");
+                upsert_account_locally(account_for_storage)
+            }
+        }
     }
 }
 
@@ -184,11 +301,30 @@ pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
     use crate::db::database::get_db;
     use futures_util::TryStreamExt;
     use mongodb::bson::doc;
-    let db = get_db().await.map_err(|e| db_err!(e))?;
+
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("get_accounts failed to initialize DB: {err}");
+            return Ok(account_store().lock().unwrap().clone());
+        }
+    };
     let coll = db.collection::<Account>("accounts");
-    let mut cursor = coll.find(doc! {}).await.map_err(|e| db_err!(e))?;
+    let mut cursor = match coll.find(doc! {}).await {
+        Ok(cursor) => cursor,
+        Err(err) => {
+            eprintln!("get_accounts query failed: {err}");
+            return Ok(account_store().lock().unwrap().clone());
+        }
+    };
     let mut accounts = Vec::new();
-    while let Some(account) = cursor.try_next().await.map_err(|e| db_err!(e))? {
+    while let Some(account) = match cursor.try_next().await {
+        Ok(account) => account,
+        Err(err) => {
+            eprintln!("get_accounts cursor failed: {err}");
+            return Ok(account_store().lock().unwrap().clone());
+        }
+    } {
         accounts.push(account);
     }
     Ok(accounts)
@@ -203,13 +339,27 @@ pub async fn submit_quiz_answer(
     submission: QuizAnswer,
 ) -> Result<bson::oid::ObjectId, ServerFnError> {
     use crate::db::database::get_db;
-    let db = get_db().await.map_err(|e| db_err!(e))?;
+
+    let submission_for_storage = submission.clone();
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("submit_quiz_answer falling back to in-memory store: {err}");
+            return persist_submission_locally(submission_for_storage);
+        }
+    };
     let coll = db.collection::<QuizAnswer>("quiz_answers");
-    let result = coll.insert_one(submission).await.map_err(|e| db_err!(e))?;
-    result
-        .inserted_id
-        .as_object_id()
-        .ok_or_else(|| ServerFnError::new("MongoDB returned a non-ObjectId _id for the submitted answer"))
+    let result = match coll.insert_one(submission).await {
+        Ok(result) => result,
+        Err(err) => {
+            eprintln!("submit_quiz_answer insert failed, falling back to in-memory store: {err}");
+            return persist_submission_locally(submission_for_storage);
+        }
+    };
+
+    result.inserted_id.as_object_id().ok_or_else(|| {
+        ServerFnError::new("MongoDB returned a non-ObjectId _id for the submitted answer")
+    })
 }
 
 #[server]
@@ -224,7 +374,7 @@ pub async fn get_submissions(
         Ok(db) => db,
         Err(err) => {
             eprintln!("get_submissions failed to initialize DB: {err}");
-            return Ok(Vec::new());
+            return Ok(local_submissions(account_id));
         }
     };
 
@@ -237,7 +387,7 @@ pub async fn get_submissions(
         Ok(cursor) => cursor,
         Err(err) => {
             eprintln!("get_submissions query failed: {err}");
-            return Ok(Vec::new());
+            return Ok(local_submissions(account_id));
         }
     };
 
@@ -246,7 +396,7 @@ pub async fn get_submissions(
         Ok(sub) => sub,
         Err(err) => {
             eprintln!("get_submissions cursor failed: {err}");
-            return Ok(Vec::new());
+            return Ok(local_submissions(account_id));
         }
     } {
         submissions.push(sub);
@@ -262,33 +412,42 @@ pub async fn get_submissions(
 pub async fn get_global_settings() -> Result<Settings, ServerFnError> {
     use crate::db::database::get_db;
     use mongodb::bson::doc;
-    let db = get_db().await.map_err(|e| db_err!(e))?;
+
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("get_global_settings failed to initialize DB: {err}");
+            return Ok(local_global_settings());
+        }
+    };
     let coll = db.collection::<Settings>("settings");
-    let settings = coll
-        .find_one(doc! {})
-        .await
-        .map_err(|e| db_err!(e))?;
+    let settings = match coll.find_one(doc! {}).await {
+        Ok(settings) => settings,
+        Err(err) => {
+            eprintln!("get_global_settings query failed: {err}");
+            return Ok(local_global_settings());
+        }
+    };
 
     if let Some(s) = settings {
         Ok(s)
     } else {
-        let default_settings = Settings {
-            id: None,
-            current: "v1.0.0".to_string(),
-            applied_at: chrono::Utc::now(),
-            applied_by: "system_initializer@internal.net".to_string(),
-            question_count: 10,
-            quiz_choice: "Standard Rules".to_string(),
+        let default_settings = default_settings();
+        let insert_res = match coll.insert_one(&default_settings).await {
+            Ok(res) => res,
+            Err(err) => {
+                eprintln!(
+                    "get_global_settings default insert failed, falling back to in-memory store: {err}"
+                );
+                return Ok(local_global_settings());
+            }
         };
-        let insert_res = coll
-            .insert_one(&default_settings)
-            .await
-            .map_err(|e| db_err!(e))?;
         let mut allocated_settings = default_settings;
-        let inserted_id = insert_res
-            .inserted_id
-            .as_object_id()
-            .ok_or_else(|| ServerFnError::new("MongoDB returned a non-ObjectId _id for the default settings document"))?;
+        let inserted_id = insert_res.inserted_id.as_object_id().ok_or_else(|| {
+            ServerFnError::new(
+                "MongoDB returned a non-ObjectId _id for the default settings document",
+            )
+        })?;
         allocated_settings.id = Some(inserted_id);
         Ok(allocated_settings)
     }
@@ -298,7 +457,15 @@ pub async fn get_global_settings() -> Result<Settings, ServerFnError> {
 pub async fn update_global_settings(updated: Settings) -> Result<bool, ServerFnError> {
     use crate::db::database::get_db;
     use mongodb::bson::doc;
-    let db = get_db().await.map_err(|e| db_err!(e))?;
+
+    let updated_for_storage = updated.clone();
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("update_global_settings falling back to in-memory store: {err}");
+            return Ok(update_local_global_settings(updated_for_storage));
+        }
+    };
     let coll = db.collection::<Settings>("settings");
 
     let query = match updated.id {
@@ -306,8 +473,7 @@ pub async fn update_global_settings(updated: Settings) -> Result<bool, ServerFnE
         None => doc! {},
     };
 
-    let applied_at_bson = bson::to_bson(&chrono::Utc::now())
-        .map_err(|e| db_err!(e))?;
+    let applied_at_bson = bson::to_bson(&chrono::Utc::now()).map_err(|e| db_err!(e))?;
 
     let update_doc = doc! {
         "$set": {
@@ -319,9 +485,14 @@ pub async fn update_global_settings(updated: Settings) -> Result<bool, ServerFnE
         }
     };
 
-    let result = coll
-        .update_one(query, update_doc)
-        .await
-        .map_err(|e| db_err!(e))?;
+    let result = match coll.update_one(query, update_doc).await {
+        Ok(result) => result,
+        Err(err) => {
+            eprintln!(
+                "update_global_settings write failed, falling back to in-memory store: {err}"
+            );
+            return Ok(update_local_global_settings(updated_for_storage));
+        }
+    };
     Ok(result.modified_count > 0)
 }

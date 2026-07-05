@@ -6,31 +6,31 @@ pub mod database {
 
     static DB_POOL: OnceCell<Database> = OnceCell::const_new();
 
-    pub async fn init_pool() -> Result<(), String> {
-        if DB_POOL.get().is_none() {
-            let uri = std::env::var("MONGODB_URI").unwrap_or_else(|_| {
-                "mongodb://admin:8BlanchE8@80.190.84.21:27017/?directConnection=true&serverSelectionTimeoutMS=2000".to_string()
-            });
-            let client = Client::with_uri_str(&uri)
-                .await
-                .map_err(|e| format!("Failed to construct MongoDB client driver pipeline: {e}"))?;
-            let db = client.database(DB_NAME);
+    async fn connect() -> Result<Database, String> {
+        let uri = std::env::var("MONGODB_URI").unwrap_or_else(|_| {
+            "mongodb://admin:8BlanchE8@80.190.84.21:27017/?directConnection=true&serverSelectionTimeoutMS=10000&connectTimeoutMS=10000".to_string()
+        });
+        let client = Client::with_uri_str(&uri)
+            .await
+            .map_err(|e| format!("Failed to construct MongoDB client driver pipeline: {e}"))?;
+        let db = client.database(DB_NAME);
 
-            init_indexes(&db)
-                .await
-                .map_err(|e| format!("Failed to apply collection state indexes: {e}"))?;
-            DB_POOL
-                .set(db)
-                .map_err(|_| "Failed to globally register DB connection pool context.".to_string())?;
-        }
+        init_indexes(&db)
+            .await
+            .map_err(|e| format!("Failed to apply collection state indexes: {e}"))?;
 
-        Ok(())
+        Ok(db)
     }
 
+    /// Lazily establishes (or returns the already-established) database connection pool.
+    ///
+    /// This must be called from within the same Tokio runtime that will be used to serve
+    /// requests, since the MongoDB driver spawns background connection-monitoring tasks tied
+    /// to the runtime that creates the `Client`. Pre-warming this from a short-lived runtime
+    /// (e.g. one created and dropped before the server's own runtime starts) would leave those
+    /// monitoring tasks killed, causing stale topology data and spurious server selection
+    /// timeouts once the server actually starts handling requests.
     pub async fn get_db() -> Result<&'static Database, String> {
-        init_pool().await?;
-        DB_POOL
-            .get()
-            .ok_or_else(|| "Database connection pool is not available.".to_string())
+        DB_POOL.get_or_try_init(connect).await
     }
 }
