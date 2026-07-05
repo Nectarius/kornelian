@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 # Core Dioxus setup
-dioxus = { version = "0.8.0-alpha.0", features = ["fullstack", "router"] }
+# Keep the base renderer feature unopinionated so desktop, web, and server
+# can be enabled independently through crate features.
+dioxus = { version = "0.8.0-alpha.0", features = ["router"] }
 dioxus-logger = "0.6.0"
 dotenvy = "0.15"
 
@@ -13,7 +15,7 @@ dotenvy = "0.15"
 serde = { version = "1.0.228", features = ["derive"] }
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
-tokio = { version = "1.52.3", features = ["full"], optional = true }
+tokio = { version = "1.52.3", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"], optional = true }
 
 # Database layer 
 # REMOVED default-features = false from mongodb to stop internal compilation failures
@@ -26,17 +28,30 @@ log = "0.4"
 
 [features]
 default = []
-web = ["dioxus/web"]
-server = ["dioxus/server", "dep:tokio", "dep:mongodb"]
+fullstack = ["dioxus/fullstack"]
+desktop = ["dioxus/desktop"]
+web = ["dioxus/web", "fullstack"]
+server = ["fullstack", "dioxus/server", "dep:tokio", "dep:mongodb"]
 
-[profile]
+[profile.dev]
+debug = true
+split-debuginfo = "packed"
+opt-level = 0
+strip = false
 
 [profile.wasm-dev]
 inherits = "dev"
-opt-level = 1
+opt-level = 0
+debug = true
 
 [profile.server-dev]
 inherits = "dev"
+opt-level = 0
+debug = true
+split-debuginfo = "packed"
+strip = false
 
 [profile.android-dev]
 inherits = "dev"
+opt-level = 0
+debug = true

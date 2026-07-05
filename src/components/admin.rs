@@ -77,7 +77,21 @@ pub fn QuizAdminView() -> Element {
                                         h4 { style: "font-weight: 600; color: #1e293b;", "{quiz.title}" }
                                         span { style: "font-size: 0.75rem; background: #e0f2fe; color: #0369a1; padding: 0.15rem 0.5rem; border-radius: 9999px;", "{quiz.questions.len()} Qs" }
                                     }
-                                    button { style: "background: #ef4444; color: white; border: none; padding: 0.35rem 0.75rem; border-radius: 0.25rem; cursor: pointer;", onclick: move |_| { let q_id = quiz.id.unwrap(); spawn(async move { if let Ok(_) = delete_quiz(q_id).await { quizzes.restart(); } }); }, "Delete" }
+                                    button { 
+                                        style: "background: #ef4444; color: white; border: none; padding: 0.35rem 0.75rem; border-radius: 0.25rem; cursor: pointer;", 
+                                        onclick: move |_| { 
+                                            // Convert the ObjectId to a clean 24-character Hex String before network transit
+                                            if let Some(id) = quiz.id {
+                                                let q_id_string = id.to_hex(); 
+                                                spawn(async move { 
+                                                    if let Ok(_) = delete_quiz(q_id_string).await { 
+                                                        quizzes.restart(); 
+                                                    } 
+                                                });
+                                            }
+                                        }, 
+                                        "Delete" 
+                                    }
                                 }
                             }
                         }

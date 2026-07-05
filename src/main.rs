@@ -37,26 +37,39 @@ pub enum Route {
 }
 
 fn main() {
-    // Corrected logging setup using standard log levels
     dioxus_logger::init(dioxus_logger::tracing::Level::INFO)
         .expect("Failed to bind log framework.");
 
     dotenvy::dotenv().ok();
+
     #[cfg(feature = "server")]
     {
-        let public_dir = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join("target/debug/public");
-        if let Err(err) = std::fs::create_dir_all(&public_dir) {
-            eprintln!("Failed to create public directory {public_dir:?}: {err}");
+        let base_dir = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let public_dirs = [
+            base_dir.join("target/server-dev/public"),
+            base_dir.join("target/debug/public"),
+        ];
+
+        for public_dir in public_dirs {
+            if let Err(err) = std::fs::create_dir_all(&public_dir) {
+                eprintln!("Failed to create public directory {public_dir:?}: {err}");
+            }
         }
 
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            if let Err(err) = crate::db::database::init_pool().await {
-                eprintln!("Database initialization failed: {err}");
-            }
-        });
+        tokio::runtime::Runtime::new()
+            .expect("Failed to create Tokio runtime")
+            .block_on(async {
+                if let Err(err) = crate::db::database::init_pool().await {
+                    eprintln!("Database initialization failed: {err}");
+                }
+            });
     }
+
+    #[cfg(feature = "desktop")]
+    LaunchBuilder::desktop().launch(App);
+
+    #[cfg(not(feature = "desktop"))]
     LaunchBuilder::new().launch(App);
 }
 

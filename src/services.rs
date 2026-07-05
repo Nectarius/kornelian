@@ -2,8 +2,33 @@ use crate::models::*;
 use dioxus::prelude::*;
 
 #[cfg(feature = "server")]
+use dioxus::prelude::*;
+
+#[cfg(feature = "server")]
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(not(feature = "server"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerFnError(String);
+
+#[cfg(not(feature = "server"))]
+impl ServerFnError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
+#[cfg(not(feature = "server"))]
+impl std::fmt::Display for ServerFnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[cfg(not(feature = "server"))]
+impl std::error::Error for ServerFnError {}
+
+#[cfg(feature = "server")]
 // Helper macro: convert any Display-able error into ServerFnError
 macro_rules! db_err {
     ($e:expr) => {
@@ -32,6 +57,12 @@ fn persist_quiz_locally(quiz: Quiz) -> Result<bson::oid::ObjectId, ServerFnError
 // 1. QUIZ CRUD SERVER OPERATIONS
 // =========================================================================
 
+#[cfg(not(feature = "server"))]
+pub async fn create_quiz(_quiz: Quiz) -> Result<bson::oid::ObjectId, ServerFnError> {
+    Err(ServerFnError::new("Server features are disabled in this build"))
+}
+
+#[cfg(feature = "server")]
 #[server]
 pub async fn create_quiz(quiz: Quiz) -> Result<bson::oid::ObjectId, ServerFnError> {
     use crate::db::database::get_db;
@@ -86,6 +117,12 @@ mod tests {
     }
 }
 
+#[cfg(not(feature = "server"))]
+pub async fn get_quizzes() -> Result<Vec<Quiz>, ServerFnError> {
+    Ok(Vec::new())
+}
+
+#[cfg(feature = "server")]
 #[server]
 pub async fn get_quizzes() -> Result<Vec<Quiz>, ServerFnError> {
     use crate::db::database::get_db;
@@ -122,25 +159,35 @@ pub async fn get_quizzes() -> Result<Vec<Quiz>, ServerFnError> {
     Ok(quizzes)
 }
 
+#[cfg(not(feature = "server"))]
+pub async fn delete_quiz(_id_str: String) -> Result<bool, ServerFnError> {
+    Ok(false)
+}
+
+#[cfg(feature = "server")]
 #[server]
-pub async fn delete_quiz(id: bson::oid::ObjectId) -> Result<bool, ServerFnError> {
+pub async fn delete_quiz(id_str: String) -> Result<bool, ServerFnError> {
     use crate::db::database::get_db;
     use mongodb::bson::doc;
+    
+    // Parse the incoming string safely into a proper BSON object id
+    let id = bson::oid::ObjectId::parse_str(&id_str)
+        .map_err(|e| ServerFnError::new(format!("Invalid ObjectId formatting: {e}")))?;
+
     let db = match get_db().await {
         Ok(db) => db,
         Err(err) => {
-            eprintln!("delete_quiz falling back to in-memory store: {err}");
-            let mut store = quiz_store().lock().unwrap();
-            let before = store.len();
-            store.retain(|quiz| quiz.id != Some(id));
-            return Ok(store.len() != before);
+            // Drop the fallback memory store entirely to prevent state desync
+            return Err(ServerFnError::new(format!("Database down: {err}")));
         }
     };
+
     let coll = db.collection::<Quiz>("quizzes");
     let result = coll
         .delete_one(doc! { "_id": id })
         .await
-        .map_err(|e| db_err!(e))?;
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
     Ok(result.deleted_count > 0)
 }
 
@@ -148,6 +195,12 @@ pub async fn delete_quiz(id: bson::oid::ObjectId) -> Result<bool, ServerFnError>
 // 2. ACCOUNT CRUD SERVER OPERATIONS
 // =========================================================================
 
+#[cfg(not(feature = "server"))]
+pub async fn upsert_account(_account: Account) -> Result<bson::oid::ObjectId, ServerFnError> {
+    Err(ServerFnError::new("Server features are disabled in this build"))
+}
+
+#[cfg(feature = "server")]
 #[server]
 pub async fn upsert_account(account: Account) -> Result<bson::oid::ObjectId, ServerFnError> {
     use crate::db::database::get_db;
@@ -179,6 +232,12 @@ pub async fn upsert_account(account: Account) -> Result<bson::oid::ObjectId, Ser
     }
 }
 
+#[cfg(not(feature = "server"))]
+pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
+    Ok(Vec::new())
+}
+
+#[cfg(feature = "server")]
 #[server]
 pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
     use crate::db::database::get_db;
@@ -198,6 +257,14 @@ pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
 // 3. QUIZ SUBMISSIONS (ANSWERS) OPERATIONS
 // =========================================================================
 
+#[cfg(not(feature = "server"))]
+pub async fn submit_quiz_answer(
+    _submission: QuizAnswer,
+) -> Result<bson::oid::ObjectId, ServerFnError> {
+    Err(ServerFnError::new("Server features are disabled in this build"))
+}
+
+#[cfg(feature = "server")]
 #[server]
 pub async fn submit_quiz_answer(
     submission: QuizAnswer,
@@ -212,6 +279,14 @@ pub async fn submit_quiz_answer(
         .ok_or_else(|| ServerFnError::new("MongoDB returned a non-ObjectId _id for the submitted answer"))
 }
 
+#[cfg(not(feature = "server"))]
+pub async fn get_submissions(
+    _account_id: Option<bson::oid::ObjectId>,
+) -> Result<Vec<QuizAnswer>, ServerFnError> {
+    Ok(Vec::new())
+}
+
+#[cfg(feature = "server")]
 #[server]
 pub async fn get_submissions(
     account_id: Option<bson::oid::ObjectId>,
@@ -258,6 +333,12 @@ pub async fn get_submissions(
 // 4. GLOBAL SETTINGS OPERATIONS
 // =========================================================================
 
+#[cfg(not(feature = "server"))]
+pub async fn get_global_settings() -> Result<Settings, ServerFnError> {
+    Err(ServerFnError::new("Server features are disabled in this build"))
+}
+
+#[cfg(feature = "server")]
 #[server]
 pub async fn get_global_settings() -> Result<Settings, ServerFnError> {
     use crate::db::database::get_db;
@@ -294,6 +375,12 @@ pub async fn get_global_settings() -> Result<Settings, ServerFnError> {
     }
 }
 
+#[cfg(not(feature = "server"))]
+pub async fn update_global_settings(_updated: Settings) -> Result<bool, ServerFnError> {
+    Ok(false)
+}
+
+#[cfg(feature = "server")]
 #[server]
 pub async fn update_global_settings(updated: Settings) -> Result<bool, ServerFnError> {
     use crate::db::database::get_db;
