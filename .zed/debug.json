@@ -1,0 +1,43 @@
+// Project-local debug tasks
+//
+// For more documentation on how to configure debug tasks,
+// see: https://zed.dev/docs/debugger
+[
+  {
+    "label": "Build & Debug Server (cargo)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "build": {
+      "command": "cargo",
+      "args": ["build", "--features", "server"],
+    },
+    // sourceLanguages is required for CodeLLDB (not GDB) when using Rust
+    "sourceLanguages": ["rust"],
+    "program": "${ZED_WORKTREE_ROOT}/target/debug/taffeite",
+    "cwd": "${ZED_WORKTREE_ROOT}",
+    "env": {
+      "RUST_LOG": "debug",
+      "RUST_BACKTRACE": "1",
+    },
+    "stopOnEntry": false,
+  },
+  {
+    // Use this when you already have `dx serve --platform web --features server`
+    // running (see the "Start Dioxus Server (Web)" task) and want to attach to the
+    // live server process to hit breakpoints in #[server] functions as requests
+    // come in through the browser.
+    //
+    // `dx serve` compiles the server binary via the `server-dev` cargo profile and
+    // then runs it from `target/dx/taffeite/debug/web/server` (alongside the built
+    // `public/` assets it serves), so that's the binary we attach to.
+    "label": "Debug Dioxus Fullstack Server",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    // sourceLanguages is required for CodeLLDB (not GDB) when using Rust; without it
+    // the debugger falls back to raw struct layouts instead of Rust-aware type
+    // summaries (Vec, String, Option, HashMap, etc.)
+    "sourceLanguages": ["rust"],
+    "program": "${ZED_WORKTREE_ROOT}/target/dx/taffeite/debug/web/server",
+    "build": "dx-build-web",
+  },
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "label": "Start Dioxus Server (Web)",
+    "command": "dx",
+    "args": ["serve", "--platform", "web"],
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+  },
+  {
+    "label": "dx-build-web",
+    "command": "dx",
+    "args": ["build", "--platform", "web"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+  },
+]
