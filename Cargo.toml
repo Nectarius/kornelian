@@ -11,6 +11,7 @@ dotenvy = "0.15"
 
 # Serialization & Async
 serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1.52.3", features = ["sync", "macros"], optional = true }
@@ -24,10 +25,17 @@ bson = { version = "2.15.0", features = [
 ], default-features = false }
 log = "0.4"
 
+# OAuth & Authentication (server-side only)
+oauth2 = { version = "4.4", optional = true }
+reqwest = { version = "0.12", features = ["json"], optional = true }
+jsonwebtoken = { version = "9.3", optional = true }
+axum-extra = { version = "0.9", features = ["cookie"], optional = true }
+time = { version = "0.3", optional = true }
+
 [features]
 default = []
 web = ["dioxus/web"]
-server = ["dioxus/server", "dep:tokio", "dep:mongodb"]
+server = ["dioxus/server", "dep:tokio", "dep:mongodb", "dep:oauth2", "dep:reqwest", "dep:jsonwebtoken", "dep:axum-extra", "dep:time"]
 
 [profile]
 

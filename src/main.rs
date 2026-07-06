@@ -6,9 +6,13 @@ mod db;
 mod models;
 mod services;
 
+#[cfg(feature = "server")]
+mod auth;
+
 use components::admin::{
     AccountManagementView as AccountManagement, QuizAdminView as QuizAdmin, SettingsPage,
 };
+use components::auth::{AuthProvider, Login};
 use components::layout::Layout;
 use components::user::{Dashboard, ResultsHistory, TakeQuizSelection};
 
@@ -18,22 +22,28 @@ use components::user::{Dashboard, ResultsHistory, TakeQuizSelection};
 #[derive(Routable, Clone, Debug, PartialEq)]
 #[rustfmt::skip]
 pub enum Route {
-    #[layout(Layout)]
-        #[route("/")]
-        Dashboard {},
-        #[route("/admin/quizzes")]
-        QuizAdmin {},
-        #[route("/quiz/execute")]
-        TakeQuizSelection {},
-        #[route("/history/submissions")]
-        ResultsHistory {},
-        #[route("/admin/accounts")]
-        AccountManagement {},
-        #[route("/admin/settings")]
-        SettingsPage {},
-    #[end_layout]
-    #[route("/:..route")]
-    PageNotFound { route: Vec<String> },
+    #[layout(AuthProvider)]
+        // Public route (no auth required)
+        #[route("/login")]
+        Login {},
+
+        // Protected routes (wrapped with Layout)
+        #[layout(Layout)]
+            #[route("/")]
+            Dashboard {},
+            #[route("/admin/quizzes")]
+            QuizAdmin {},
+            #[route("/quiz/execute")]
+            TakeQuizSelection {},
+            #[route("/history/submissions")]
+            ResultsHistory {},
+            #[route("/admin/accounts")]
+            AccountManagement {},
+            #[route("/admin/settings")]
+            SettingsPage {},
+        #[end_layout]
+        #[route("/:..route")]
+        PageNotFound { route: Vec<String> },
 }
 
 fn main() {
@@ -60,7 +70,28 @@ fn main() {
         // Instead, `db::database::get_db()` lazily connects on first use, from within
         // the same runtime that serves requests.
     }
-    LaunchBuilder::new().launch(App);
+
+    #[cfg(feature = "server")]
+    {
+        use auth::routes::{google_auth_handler, google_callback_handler, logout_handler};
+        use dioxus::server::axum::routing::get;
+
+        dioxus::serve(|| async move {
+            let router = dioxus::server::router(App)
+                .route("/auth/google", get(google_auth_handler))
+                .route("/auth/google/callback", get(google_callback_handler))
+                // Alias for Spring Boot style OAuth redirect (used by some OAuth providers)
+                .route("/login/oauth2/code/google", get(google_callback_handler))
+                .route("/auth/logout", get(logout_handler));
+
+            Ok(router)
+        });
+    }
+
+    #[cfg(not(feature = "server"))]
+    {
+        LaunchBuilder::new().launch(App);
+    }
 }
 
 fn App() -> Element {

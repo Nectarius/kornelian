@@ -44,7 +44,7 @@ pub fn TakeQuizSelection() -> Element {
     };
 
     let mut select_choice = move |q_id: ObjectId, text: String| {
-        let answer = Answer { question_id: q_id, text, started: *runtime_start_time.read(), completed: Utc::now() };
+        let answer = Answer { question_id: q_id, text: text.clone(), started: *runtime_start_time.read(), completed: Utc::now() };
         let mut answers_vec = chosen_answers.read().clone();
         answers_vec.retain(|a| a.question_id != q_id);
         answers_vec.push(answer);
@@ -63,7 +63,20 @@ pub fn TakeQuizSelection() -> Element {
         });
     };
 
+
+
     rsx! {
+        style { "
+            .quiz-choice-button:hover {{
+                border-color: #93c5fd !important;
+                box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+                background: #f0f9ff !important;
+            }}
+            .quiz-choice-button:active {{
+                border-color: #2563eb !important;
+                box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.15);
+            }}
+        " }
         div { style: "max-width: 800px; margin: 0 auto;",
             if active_quiz.read().is_none() {
                 h1 { style: "font-size: 1.75rem; font-weight: 700; margin-bottom: 1.5rem;", "Select Target Quiz Engine" }
@@ -99,7 +112,12 @@ pub fn TakeQuizSelection() -> Element {
                                 h2 { style: "margin-bottom: 1.5rem;", "{question.text}" }
                                 div { style: "display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 2rem;",
                                     for choice in question.answer_choices.clone() {
-                                        button { style: "text-align: left; padding: 1rem; border: 1px solid #e2e8f0; background: white; cursor: pointer;", onclick: move |_| select_choice(question.id, choice.text.clone()), "{choice.text}" }
+                                        button { 
+                                            style: "text-align: left; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s ease;", 
+                                            class: "quiz-choice-button",
+                                            onclick: move |_| select_choice(question.id, choice.text.clone()), 
+                                            "{choice.text}" 
+                                        }
                                     }
                                 }
                                 div { style: "display: flex; justify-content: space-between;",

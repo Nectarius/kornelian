@@ -4,6 +4,9 @@ use dioxus::prelude::*;
 #[cfg(feature = "server")]
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(feature = "server")]
+use dioxus::server::axum::http::HeaderMap;
+
 // Helper macro: convert any Display-able error into ServerFnError
 macro_rules! db_err {
     ($e:expr) => {
@@ -167,7 +170,7 @@ pub async fn create_quiz(quiz: Quiz) -> Result<bson::oid::ObjectId, ServerFnErro
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;
 
@@ -495,4 +498,90 @@ pub async fn update_global_settings(updated: Settings) -> Result<bool, ServerFnE
         }
     };
     Ok(result.modified_count > 0)
+}
+
+// =========================================================================
+// 5. AUTHENTICATION OPERATIONS
+// =========================================================================
+
+#[server(endpoint = "/api/current-user", headers: dioxus::fullstack::HeaderMap)]
+pub async fn get_current_user() -> Result<Option<Account>, ServerFnError> {
+    use crate::auth::jwt::validate_jwt;
+    use crate::db::database::get_db;
+    use mongodb::bson::doc;
+    use bson::oid::ObjectId;
+    
+    eprintln!("get_current_user called");
+    
+    // Get the session token from cookies
+    let token = extract_session_token(&headers);
+    
+    let token = match token {
+        Some(t) => {
+            eprintln!("Found session token in cookies");
+            t
+        },
+        None => {
+            eprintln!("No session token found in cookies. Headers: {:?}", headers.get("cookie"));
+            return Ok(None);
+        },
+    };
+    
+    // Validate JWT and extract claims
+    let claims = match validate_jwt(&token) {
+        Ok(claims) => {
+            eprintln!("JWT validated successfully for user: {}", claims.sub);
+            claims
+        },
+        Err(e) => {
+            eprintln!("JWT validation failed: {:?}", e);
+            return Ok(None);
+        }
+    };
+    
+    // Parse the user_id from claims
+    let user_id = ObjectId::parse_str(&claims.user_id)
+        .map_err(|e| ServerFnError::new(format!("Invalid user_id in JWT: {}", e)))?;
+    
+    eprintln!("Looking up user in database: {}", user_id);
+    
+    // Fetch the account from database
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("get_current_user failed to initialize DB: {err}");
+            // Try to find in local store
+            let store = account_store().lock().unwrap();
+            return Ok(store.iter().find(|a| a.id == Some(user_id)).cloned());
+        }
+    };
+    
+    let coll = db.collection::<Account>("accounts");
+    let account = coll
+        .find_one(doc! { "_id": user_id })
+        .await
+        .map_err(|e| ServerFnError::new(format!("Database error: {}", e)))?;
+    
+    if let Some(ref acc) = account {
+        eprintln!("Found account: {}", acc.email);
+    } else {
+        eprintln!("No account found in database for user_id: {}", user_id);
+    }
+    
+    Ok(account)
+}
+
+#[cfg(feature = "server")]
+fn extract_session_token(headers: &HeaderMap) -> Option<String> {
+    let cookie_header = headers.get("cookie")?.to_str().ok()?;
+    
+    // Parse cookies and find session_token
+    for cookie_str in cookie_header.split(';') {
+        let cookie_str = cookie_str.trim();
+        if let Some(value) = cookie_str.strip_prefix("session_token=") {
+            return Some(value.to_string());
+        }
+    }
+    
+    None
 }
