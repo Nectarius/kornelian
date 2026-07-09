@@ -14,7 +14,7 @@ use components::admin::{
 };
 use components::auth::{AuthProvider, Login};
 use components::layout::Layout;
-use components::user::{Dashboard, ResultsHistory, TakeQuizSelection};
+use components::user::{Dashboard, NotesView, ResultsHistory, TakeQuizSelection};
 
 // =========================================================================
 // DIOXUS APPLICATION ROUTER DEFINITION
@@ -37,6 +37,8 @@ pub enum Route {
             TakeQuizSelection {},
             #[route("/history/submissions")]
             ResultsHistory {},
+            #[route("/notes")]
+            NotesView {},
             #[route("/admin/accounts")]
             AccountManagement {},
             #[route("/admin/settings")]

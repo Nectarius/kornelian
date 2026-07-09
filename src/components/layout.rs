@@ -1,13 +1,12 @@
 use dioxus::prelude::*;
 use crate::Route;
-use crate::components::auth::{use_auth, use_logout, AuthLoading};
+use crate::components::auth::{use_auth, AuthLoading};
 
 #[component]
 pub fn Layout() -> Element {
     let auth = use_auth();
     let auth_state = auth.read();
     let nav = navigator();
-    let logout = use_logout();
     
     // Show loading screen while checking auth
     if auth_state.is_loading {
@@ -43,9 +42,9 @@ pub fn Layout() -> Element {
                     div { style: "font-size: 0.9rem; color: #cbd5e1; font-weight: 500; margin-bottom: 0.75rem;", 
                         "{user.email}"
                     }
-                    button {
-                        style: "width: 100%; padding: 0.5rem; background: #dc2626; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-weight: 500; transition: background 0.2s;",
-                        onclick: move |_| logout(),
+                    a {
+                        href: "/auth/logout",
+                        style: "display: block; text-align: center; width: 100%; padding: 0.5rem; background: #dc2626; color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-weight: 500; transition: background 0.2s; text-decoration: none; box-sizing: border-box;",
                         "Logout"
                     }
                 }

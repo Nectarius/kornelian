@@ -72,6 +72,70 @@ fn account_store() -> &'static Mutex<Vec<Account>> {
 }
 
 #[cfg(feature = "server")]
+static NOTE_STORE: OnceLock<Mutex<Vec<Note>>> = OnceLock::new();
+
+#[cfg(feature = "server")]
+fn note_store() -> &'static Mutex<Vec<Note>> {
+    NOTE_STORE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[cfg(feature = "server")]
+fn persist_note_locally(note: Note) -> Result<bson::oid::ObjectId, ServerFnError> {
+    let id = bson::oid::ObjectId::new();
+    let mut stored_note = note;
+    stored_note.id = Some(id);
+    note_store().lock().unwrap().push(stored_note);
+    Ok(id)
+}
+
+#[cfg(feature = "server")]
+fn local_notes(account_id: bson::oid::ObjectId) -> Vec<Note> {
+    note_store()
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|n| n.account_id == account_id)
+        .cloned()
+        .collect()
+}
+
+#[cfg(feature = "server")]
+fn update_note_locally(
+    account_id: bson::oid::ObjectId,
+    id: bson::oid::ObjectId,
+    title: String,
+    content: String,
+) -> Result<bool, ServerFnError> {
+    let mut store = note_store().lock().unwrap();
+    let note = store
+        .iter_mut()
+        .find(|n| n.id == Some(id))
+        .ok_or_else(|| ServerFnError::new("Note not found"))?;
+    if note.account_id != account_id {
+        return Err(ServerFnError::new("Note does not belong to this account"));
+    }
+    note.title = title;
+    note.content = content;
+    note.updated_at = chrono::Utc::now();
+    Ok(true)
+}
+
+#[cfg(feature = "server")]
+fn delete_note_locally(account_id: bson::oid::ObjectId, id: bson::oid::ObjectId) -> Result<bool, ServerFnError> {
+    let mut store = note_store().lock().unwrap();
+    let before = store.len();
+    store.retain(|n| !(n.id == Some(id) && n.account_id == account_id));
+    if store.len() == before {
+        let exists = store.iter().any(|n| n.id == Some(id));
+        if exists {
+            return Err(ServerFnError::new("Note does not belong to this account"));
+        }
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+#[cfg(feature = "server")]
 static SETTINGS_STORE: OnceLock<Mutex<Option<Settings>>> = OnceLock::new();
 
 #[cfg(feature = "server")]
@@ -501,7 +565,199 @@ pub async fn update_global_settings(updated: Settings) -> Result<bool, ServerFnE
 }
 
 // =========================================================================
-// 5. AUTHENTICATION OPERATIONS
+// 5. NOTES CRUD SERVER OPERATIONS
+// =========================================================================
+
+#[server]
+pub async fn create_note(
+    account_id: bson::oid::ObjectId,
+    title: String,
+    content: String,
+) -> Result<bson::oid::ObjectId, ServerFnError> {
+    use crate::db::database::get_db;
+
+    let now = chrono::Utc::now();
+    let note = Note {
+        id: None,
+        account_id,
+        title,
+        content,
+        created_at: now,
+        updated_at: now,
+    };
+    let note_for_storage = note.clone();
+
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("create_note falling back to in-memory store: {err}");
+            return persist_note_locally(note_for_storage);
+        }
+    };
+
+    let coll = db.collection::<Note>("notes");
+    let result = match coll.insert_one(note).await {
+        Ok(result) => result,
+        Err(err) => {
+            eprintln!("create_note insert failed, falling back to in-memory store: {err}");
+            return persist_note_locally(note_for_storage);
+        }
+    };
+
+    match result.inserted_id.as_object_id() {
+        Some(id) => Ok(id),
+        None => Err(ServerFnError::new("MongoDB returned a non-ObjectId _id")),
+    }
+}
+
+#[server]
+pub async fn get_notes(account_id: bson::oid::ObjectId) -> Result<Vec<Note>, ServerFnError> {
+    use crate::db::database::get_db;
+    use futures_util::TryStreamExt;
+    use mongodb::bson::doc;
+
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("get_notes failed to initialize DB: {err}");
+            return Ok(local_notes(account_id));
+        }
+    };
+
+    let coll = db.collection::<Note>("notes");
+    let filter = doc! { "account_id": account_id };
+    let mut cursor = match coll.find(filter).await {
+        Ok(cursor) => cursor,
+        Err(err) => {
+            eprintln!("get_notes query failed: {err}");
+            return Ok(local_notes(account_id));
+        }
+    };
+
+    let mut notes = Vec::new();
+    while let Some(note) = match cursor.try_next().await {
+        Ok(note) => note,
+        Err(err) => {
+            eprintln!("get_notes cursor failed: {err}");
+            return Ok(local_notes(account_id));
+        }
+    } {
+        notes.push(note);
+    }
+    Ok(notes)
+}
+
+#[server]
+pub async fn update_note(
+    account_id: bson::oid::ObjectId,
+    id: bson::oid::ObjectId,
+    title: String,
+    content: String,
+) -> Result<bool, ServerFnError> {
+    use crate::db::database::get_db;
+    use mongodb::bson::doc;
+
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("update_note falling back to in-memory store: {err}");
+            return update_note_locally(account_id, id, title, content);
+        }
+    };
+
+    let coll = db.collection::<Note>("notes");
+    let existing = match coll
+        .find_one(doc! { "_id": id, "account_id": account_id })
+        .await
+    {
+        Ok(existing) => existing,
+        Err(err) => {
+            eprintln!("update_note lookup failed, falling back to in-memory store: {err}");
+            return update_note_locally(account_id, id, title, content);
+        }
+    };
+
+    if existing.is_none() {
+        return Err(ServerFnError::new(
+            "Note not found or does not belong to this account",
+        ));
+    }
+
+    let title_for_storage = title.clone();
+    let content_for_storage = content.clone();
+    let updated_at_bson = bson::to_bson(&chrono::Utc::now()).map_err(|e| db_err!(e))?;
+    let update_doc = doc! {
+        "$set": {
+            "title": &title,
+            "content": &content,
+            "updated_at": updated_at_bson,
+        }
+    };
+
+    let result = match coll
+        .update_one(doc! { "_id": id, "account_id": account_id }, update_doc)
+        .await
+    {
+        Ok(result) => result,
+        Err(err) => {
+            eprintln!("update_note write failed, falling back to in-memory store: {err}");
+            return update_note_locally(account_id, id, title_for_storage, content_for_storage);
+        }
+    };
+
+    Ok(result.modified_count > 0)
+}
+
+#[server]
+pub async fn delete_note(
+    account_id: bson::oid::ObjectId,
+    id: bson::oid::ObjectId,
+) -> Result<bool, ServerFnError> {
+    use crate::db::database::get_db;
+    use mongodb::bson::doc;
+
+    let db = match get_db().await {
+        Ok(db) => db,
+        Err(err) => {
+            eprintln!("delete_note falling back to in-memory store: {err}");
+            return delete_note_locally(account_id, id);
+        }
+    };
+
+    let coll = db.collection::<Note>("notes");
+    let existing = match coll
+        .find_one(doc! { "_id": id, "account_id": account_id })
+        .await
+    {
+        Ok(existing) => existing,
+        Err(err) => {
+            eprintln!("delete_note lookup failed, falling back to in-memory store: {err}");
+            return delete_note_locally(account_id, id);
+        }
+    };
+
+    if existing.is_none() {
+        return Err(ServerFnError::new(
+            "Note not found or does not belong to this account",
+        ));
+    }
+
+    let result = match coll
+        .delete_one(doc! { "_id": id, "account_id": account_id })
+        .await
+    {
+        Ok(result) => result,
+        Err(err) => {
+            eprintln!("delete_note write failed, falling back to in-memory store: {err}");
+            return delete_note_locally(account_id, id);
+        }
+    };
+
+    Ok(result.deleted_count > 0)
+}
+
+// =========================================================================
+// 6. AUTHENTICATION OPERATIONS
 // =========================================================================
 
 #[server(endpoint = "/api/current-user", headers: dioxus::fullstack::HeaderMap)]

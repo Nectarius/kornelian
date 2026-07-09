@@ -83,11 +83,13 @@ pub fn use_current_user() -> Option<Account> {
 
 /// Hook to logout
 pub fn use_logout() -> impl Fn() {
-    let nav = navigator();
-
     move || {
-        // Redirect to the logout endpoint which will clear the cookie and redirect to /login
-        nav.push("/auth/logout");
+        // Server-side auth routes (like /auth/logout) must use a full page navigation,
+        // not client-side router navigation — same pattern as login's <a href="/auth/google">.
+        #[cfg(feature = "web")]
+        {
+            dioxus::document::eval("window.location.assign('/auth/logout')");
+        }
     }
 }
 

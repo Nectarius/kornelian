@@ -4,6 +4,9 @@ use crate::services::*;
 use bson::oid::ObjectId;
 use chrono::Utc;
 
+mod notes;
+pub use notes::NotesView;
+
 #[component]
 pub fn Dashboard() -> Element {
     let quizzes = use_resource(move || get_quizzes());

@@ -74,7 +74,27 @@ pub struct Account {
 }
 
 // =========================================================================
-// 4. SETTINGS COLLECTION MODELS
+// 4. NOTES COLLECTION MODELS
+// =========================================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+pub struct Note {
+    #[serde(default, rename = "_id", skip_serializing_if = "Option::is_none")]
+    pub id: Option<ObjectId>,
+    #[serde(default)]
+    pub account_id: ObjectId,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub updated_at: DateTime<Utc>,
+}
+
+// =========================================================================
+// 5. SETTINGS COLLECTION MODELS
 // =========================================================================
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
