@@ -10,3 +10,28 @@ The application will be accessible at http://localhost on the host machine.
 
 
 sudo fuser -k 8080/tcp
+
+Execution Commands
+To execute, navigate to your project directory /home/nefarius/workspaces_taffeite/taffeite/taffeite and run the following terminal commands:
+
+1. Build the Docker Image
+bash
+docker build -t taffeite:latest .
+2. Option A: Run using docker run
+This command automatically loads environment variables from your .env file, overrides the mode to prod, mounts your local TLS certificates, and starts the container in the background:
+
+bash
+docker run -d \
+  --name kornelian \
+  -p 443:443 \
+  --env-file .env \
+  -e APP_MODE=prod \
+  -v "$(pwd)/kornelian.com.pem:/app/kornelian.com.pem" \
+  -v "$(pwd)/kornelian.com.key:/app/kornelian.com.key" \
+  --restart unless-stopped \
+  taffeite:latest
+3. Option B: Run using Docker Compose (Recommended)
+Docker Compose will automatically pick up and interpolate the environment variables from the .env file located in the same directory:
+
+bash
+docker compose up -d

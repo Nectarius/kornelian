@@ -36,7 +36,17 @@ axum-server = { version = "0.7", features = ["tls-rustls"], optional = true }
 [features]
 default = []
 web = ["dioxus/web"]
-server = ["dioxus/server", "dep:tokio", "dep:mongodb", "dep:oauth2", "dep:reqwest", "dep:jsonwebtoken", "dep:axum-extra", "dep:time", "dep:axum-server"]
+server = [
+    "dioxus/server",
+    "dep:tokio",
+    "dep:mongodb",
+    "dep:oauth2",
+    "dep:reqwest",
+    "dep:jsonwebtoken",
+    "dep:axum-extra",
+    "dep:time",
+    "dep:axum-server",
+]
 
 [profile]
 

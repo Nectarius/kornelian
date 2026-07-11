@@ -1,10 +1,18 @@
 services:
-  taffeite:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: kornelian
     ports:
-      - "80:8080"
-    env_file:
-      - .env
+      - "443:443"
+    environment:
+      - APP_MODE=prod
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_DB=${MONGODB_DB}
+    volumes:
+      - ./kornelian.com.pem:/app/kornelian.com.pem
+      - ./kornelian.com.key:/app/kornelian.com.key
     restart: unless-stopped
