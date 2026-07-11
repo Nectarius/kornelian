@@ -56,9 +56,14 @@ fn main() {
     dotenvy::dotenv().ok();
     #[cfg(feature = "server")]
     {
-        let public_dir = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join("target/debug/public");
+        let public_dir = std::env::var("PUBLIC_DIR")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    .join("target/debug/public")
+            });
         if let Err(err) = std::fs::create_dir_all(&public_dir) {
             eprintln!("Failed to create public directory {public_dir:?}: {err}");
         }
