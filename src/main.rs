@@ -48,6 +48,46 @@ pub enum Route {
         PageNotFound { route: Vec<String> },
 }
 
+#[cfg(feature = "server")]
+fn is_production_mode() -> bool {
+    // 1. Compile-time check (during the build)
+    if let Some(mode) = option_env!("APP_MODE") {
+        if mode.to_lowercase() == "production" || mode.to_lowercase() == "prod" {
+            return true;
+        }
+    }
+    if let Some(mode) = option_env!("MODE") {
+        if mode.to_lowercase() == "production" || mode.to_lowercase() == "prod" {
+            return true;
+        }
+    }
+    
+    // 2. Runtime check (command-line arguments at startup)
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|arg| arg == "--prod" || arg == "--production" || arg.starts_with("--mode=prod") || arg.starts_with("--mode=production")) {
+        return true;
+    }
+    
+    // 3. Runtime check (environment variables at startup)
+    if let Ok(mode) = std::env::var("APP_MODE") {
+        if mode.to_lowercase() == "production" || mode.to_lowercase() == "prod" {
+            return true;
+        }
+    }
+    if let Ok(mode) = std::env::var("MODE") {
+        if mode.to_lowercase() == "production" || mode.to_lowercase() == "prod" {
+            return true;
+        }
+    }
+    if let Ok(mode) = std::env::var("TAFFEITE_MODE") {
+        if mode.to_lowercase() == "production" || mode.to_lowercase() == "prod" {
+            return true;
+        }
+    }
+    
+    false
+}
+
 fn main() {
     // Corrected logging setup using standard log levels
     dioxus_logger::init(dioxus_logger::tracing::Level::INFO)
@@ -56,6 +96,9 @@ fn main() {
     dotenvy::dotenv().ok();
     #[cfg(feature = "server")]
     {
+        let is_prod = is_production_mode();
+        auth::config::set_production_mode(is_prod);
+
         let public_dir = std::env::var("PUBLIC_DIR")
             .ok()
             .map(std::path::PathBuf::from)
@@ -83,16 +126,49 @@ fn main() {
         use auth::routes::{google_auth_handler, google_callback_handler, logout_handler};
         use dioxus::server::axum::routing::get;
 
-        dioxus::serve(|| async move {
-            let router = dioxus::server::router(App)
-                .route("/auth/google", get(google_auth_handler))
-                .route("/auth/google/callback", get(google_callback_handler))
-                // Alias for Spring Boot style OAuth redirect (used by some OAuth providers)
-                .route("/login/oauth2/code/google", get(google_callback_handler))
-                .route("/auth/logout", get(logout_handler));
+        let is_prod = auth::config::is_production();
 
-            Ok(router)
-        });
+        if is_prod {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+            rt.block_on(async {
+                let router = dioxus::server::router(App)
+                    .route("/auth/google", get(google_auth_handler))
+                    .route("/auth/google/callback", get(google_callback_handler))
+                    .route("/login/oauth2/code/google", get(google_callback_handler))
+                    .route("/auth/logout", get(logout_handler));
+
+                let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 443));
+                
+                let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(
+                    "kornelian.com.pem",
+                    "kornelian.com.key",
+                )
+                .await
+                .expect("Failed to load TLS certificates kornelian.com.pem and kornelian.com.key");
+
+                eprintln!("Serving HTTPS on 0.0.0.0:443");
+                axum_server::bind_rustls(addr, config)
+                    .serve(router.into_make_service())
+                    .await
+                    .expect("Failed to run axum-server with TLS");
+            });
+        } else {
+            unsafe {
+                std::env::set_var("IP", "127.0.0.1");
+                std::env::set_var("PORT", "5120");
+            }
+
+            dioxus::serve(|| async move {
+                let router = dioxus::server::router(App)
+                    .route("/auth/google", get(google_auth_handler))
+                    .route("/auth/google/callback", get(google_callback_handler))
+                    // Alias for Spring Boot style OAuth redirect (used by some OAuth providers)
+                    .route("/login/oauth2/code/google", get(google_callback_handler))
+                    .route("/auth/logout", get(logout_handler));
+
+                Ok(router)
+            });
+        }
     }
 
     #[cfg(not(feature = "server"))]

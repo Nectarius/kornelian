@@ -31,11 +31,12 @@ reqwest = { version = "0.12", features = ["json"], optional = true }
 jsonwebtoken = { version = "9.3", optional = true }
 axum-extra = { version = "0.9", features = ["cookie"], optional = true }
 time = { version = "0.3", optional = true }
+axum-server = { version = "0.7", features = ["tls-rustls"], optional = true }
 
 [features]
 default = []
 web = ["dioxus/web"]
-server = ["dioxus/server", "dep:tokio", "dep:mongodb", "dep:oauth2", "dep:reqwest", "dep:jsonwebtoken", "dep:axum-extra", "dep:time"]
+server = ["dioxus/server", "dep:tokio", "dep:mongodb", "dep:oauth2", "dep:reqwest", "dep:jsonwebtoken", "dep:axum-extra", "dep:time", "dep:axum-server"]
 
 [profile]
 

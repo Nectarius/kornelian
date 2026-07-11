@@ -118,12 +118,13 @@ pub async fn google_callback_handler(
         })?;
 
     // Set HTTP-only secure cookie
+    let is_prod = crate::auth::config::is_production();
     let cookie = Cookie::build((SESSION_COOKIE_NAME, jwt_token))
         .path("/")
         .max_age(time::Duration::days(7))
         .same_site(SameSite::Lax)
         .http_only(true)
-        .secure(false) // Set to true in production with HTTPS
+        .secure(is_prod)
         .build();
 
     // Use the full cookie string with all attributes
@@ -163,12 +164,13 @@ async fn fetch_google_user_info(access_token: &str) -> Result<GoogleUserInfo, Bo
 /// Handler for GET /auth/logout - clears the session cookie
 pub async fn logout_handler() -> impl IntoResponse {
     // Create an expired cookie to clear the session
+    let is_prod = crate::auth::config::is_production();
     let cookie = Cookie::build((SESSION_COOKIE_NAME, ""))
         .path("/")
         .max_age(time::Duration::seconds(0))
         .same_site(SameSite::Lax)
         .http_only(true)
-        .secure(false) // Set to true in production with HTTPS
+        .secure(is_prod)
         .build();
     
     // Redirect to login page after clearing cookie

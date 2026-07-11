@@ -7,3 +7,6 @@ To deploy:
 Copy .env.example to .env and fill in your actual values
 Run docker-compose up --build -d
 The application will be accessible at http://localhost on the host machine.
+
+
+sudo fuser -k 8080/tcp
