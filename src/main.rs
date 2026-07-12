@@ -89,11 +89,13 @@ fn is_production_mode() -> bool {
 }
 
 fn main() {
-    // Corrected logging setup using standard log levels
-    dioxus_logger::init(dioxus_logger::tracing::Level::INFO)
-        .expect("Failed to bind log framework.");
+    // Initialize logging gracefully
+    if let Err(e) = dioxus_logger::init(dioxus_logger::tracing::Level::INFO) {
+        eprintln!("Warning: Failed to initialize logger: {}", e);
+    }
 
     dotenvy::dotenv().ok();
+
     #[cfg(feature = "server")]
     {
         let is_prod = is_production_mode();
@@ -107,8 +109,9 @@ fn main() {
                     .unwrap_or_else(|_| std::path::PathBuf::from("."))
                     .join("target/debug/public")
             });
+            
         if let Err(err) = std::fs::create_dir_all(&public_dir) {
-            eprintln!("Failed to create public directory {public_dir:?}: {err}");
+            eprintln!("Warning: Failed to create public directory {public_dir:?}: {err}");
         }
 
         // NOTE: The MongoDB connection pool is intentionally *not* warmed up here.
@@ -127,10 +130,25 @@ fn main() {
         use dioxus::server::axum::routing::get;
 
         let is_prod = auth::config::is_production();
+        eprintln!("🚀 [DEBUG] Server feature is active. is_prod = {}", is_prod);
 
         if is_prod {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            rt.block_on(async {
+            // Create Tokio runtime with error handling
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    eprintln!("❌ FATAL: Failed to create Tokio runtime: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let server_result = rt.block_on(async {
+                // Install rustls crypto provider
+                if let Err(e) = rustls::crypto::ring::default_provider().install_default() {
+                    eprintln!("❌ FATAL: Failed to install rustls crypto provider: {:?}", e);
+                    return Err("Rustls provider installation failed".to_string());
+                }
+
                 let router = dioxus::server::router(App)
                     .route("/auth/google", get(google_auth_handler))
                     .route("/auth/google/callback", get(google_callback_handler))
@@ -138,20 +156,58 @@ fn main() {
                     .route("/auth/logout", get(logout_handler));
 
                 let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 443));
-                
-                let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(
-                    "kornelian.com.pem",
-                    "kornelian.com.key",
-                )
-                .await
-                .expect("Failed to load TLS certificates kornelian.com.pem and kornelian.com.key");
+                let cert_path = "kornelian.com.pem";
+                let key_path = "kornelian.com.key";
 
-                eprintln!("Serving HTTPS on 0.0.0.0:443");
-                axum_server::bind_rustls(addr, config)
+                // Pre-check certificate files to provide better error messages
+                if !std::path::Path::new(cert_path).exists() {
+                    eprintln!("❌ FATAL: TLS Certificate file not found at: {}", cert_path);
+                    eprintln!("   Current working directory: {:?}", std::env::current_dir().unwrap_or_default());
+                    return Err("Missing certificate file".to_string());
+                }
+                if !std::path::Path::new(key_path).exists() {
+                    eprintln!("❌ FATAL: TLS Key file not found at: {}", key_path);
+                    eprintln!("   Current working directory: {:?}", std::env::current_dir().unwrap_or_default());
+                    return Err("Missing key file".to_string());
+                }
+
+                eprintln!("🔑 Loading TLS certificates...");
+                let config = match axum_server::tls_rustls::RustlsConfig::from_pem_file(cert_path, key_path).await {
+                    Ok(cfg) => {
+                        eprintln!("✅ TLS certificates loaded successfully.");
+                        cfg
+                    }
+                    Err(e) => {
+                        eprintln!("❌ FATAL: Failed to parse TLS certificates: {}", e);
+                        eprintln!("   Ensure the files are valid PEM format and not corrupted.");
+                        return Err("Invalid TLS certificates".to_string());
+                    }
+                };
+
+                eprintln!("🌐 Serving HTTPS on 0.0.0.0:443");
+                if let Err(e) = axum_server::bind_rustls(addr, config)
                     .serve(router.into_make_service())
                     .await
-                    .expect("Failed to run axum-server with TLS");
+                {
+                    eprintln!("❌ FATAL: Failed to start HTTPS server: {}", e);
+                    
+                    // Provide helpful hints for common binding errors
+                    let err_str = e.to_string().to_lowercase();
+                    if err_str.contains("permission denied") || err_str.contains("os error 13") {
+                        eprintln!("💡 HINT: Port 443 requires root privileges. Try running with `sudo`, or map port 443 to a higher port (e.g., 8443) inside Docker.");
+                    } else if err_str.contains("address already in use") || err_str.contains("os error 98") {
+                        eprintln!("💡 HINT: Port 443 is already in use. Stop the other process or change the port.");
+                    }
+                    return Err("Server bind failed".to_string());
+                }
+
+                Ok(())
             });
+
+            if let Err(e) = server_result {
+                eprintln!("🛑 Server exited with error: {}", e);
+                std::process::exit(1);
+            }
         } else {
             unsafe {
                 std::env::set_var("IP", "127.0.0.1");

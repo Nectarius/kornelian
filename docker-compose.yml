@@ -1,18 +1,14 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # Use the name/tag of your existing built image
+    image: kornelian:latest 
     container_name: kornelian
     ports:
       - "443:443"
-    environment:
-      - APP_MODE=prod
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - MONGODB_URI=${MONGODB_URI}
-      - MONGODB_DB=${MONGODB_DB}
+    env_file:
+      - .env
     volumes:
-      - ./kornelian.com.pem:/app/kornelian.com.pem
-      - ./kornelian.com.key:/app/kornelian.com.key
+      # Added ':ro' (read-only) for better security with certificate files
+      - ./kornelian.com.pem:/app/kornelian.com.pem:ro
+      - ./kornelian.com.key:/app/kornelian.com.key:ro
     restart: unless-stopped

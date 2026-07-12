@@ -16,7 +16,7 @@ To execute, navigate to your project directory /home/nefarius/workspaces_taffeit
 
 1. Build the Docker Image
 bash
-docker build -t taffeite:latest .
+docker build -t kornelian:latest .
 2. Option A: Run using docker run
 This command automatically loads environment variables from your .env file, overrides the mode to prod, mounts your local TLS certificates, and starts the container in the background:
 
@@ -35,3 +35,27 @@ Docker Compose will automatically pick up and interpolate the environment variab
 
 bash
 docker compose up -d
+
+docker build --no-cache -t taffeite:latest .
+
+docker run -p 443:443 taffeite-app
+
+docker-compose up --build -d
+
+docker-compose up --build
+
+docker load -i kornelian.tar
+
+
+docker save -o kornelian.tar kornelian:latest
+
+
+docker run  \
+  --name kornelian \
+  -p 443:443 \
+  --env-file .env \
+  -e APP_MODE=prod \
+  -v "$(pwd)/kornelian.com.pem:/app/kornelian.com.pem" \
+  -v "$(pwd)/kornelian.com.key:/app/kornelian.com.key" \
+  --restart unless-stopped \
+  kornelian:latest

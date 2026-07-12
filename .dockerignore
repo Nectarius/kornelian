@@ -1,0 +1,19 @@
+# Exclude build artifacts
+target/
+dist/
+# Exclude local git configuration
+.git/
+.gitignore
+
+# Exclude secrets and configuration so they are never baked into the image
+.env
+.credentials
+*.pem
+*.key
+
+# Exclude development configs
+.vscode/
+.zed/
+README.md
+readme.md
+docker-compose.yml

@@ -4,34 +4,24 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# Core Dioxus setup
 dioxus = { version = "0.7.9", features = ["fullstack", "router"] }
 dioxus-logger = "0.7.9"
 dotenvy = "0.15"
-
-# Serialization & Async
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1.52.3", features = ["sync", "macros"], optional = true }
-
-# Database layer
-# REMOVED default-features = false from mongodb to stop internal compilation failures
 mongodb = { version = "3.7.0", optional = true }
-bson = { version = "2.15.0", features = [
-    "chrono-0_4",
-    "uuid-1",
-], default-features = false }
+bson = { version = "2.15.0", features = ["chrono-0_4", "uuid-1"], default-features = false }
 log = "0.4"
-
-# OAuth & Authentication (server-side only)
 oauth2 = { version = "4.4", optional = true }
 reqwest = { version = "0.12", features = ["json"], optional = true }
 jsonwebtoken = { version = "9.3", optional = true }
 axum-extra = { version = "0.9", features = ["cookie"], optional = true }
 time = { version = "0.3", optional = true }
 axum-server = { version = "0.7", features = ["tls-rustls"], optional = true }
+rustls = { version = "0.23", features = ["ring"], optional = true }
 
 [features]
 default = []
@@ -46,9 +36,8 @@ server = [
     "dep:axum-extra",
     "dep:time",
     "dep:axum-server",
+    "dep:rustls",
 ]
-
-[profile]
 
 [profile.wasm-dev]
 inherits = "dev"
@@ -59,3 +48,10 @@ inherits = "dev"
 
 [profile.android-dev]
 inherits = "dev"
+
+[profile.release]
+opt-level = "z"   # Optimize for binary size
+lto = true         # Link-Time Optimization
+codegen-units = 1  # Single codegen unit for maximum optimization
+panic = "abort"   # Remove panic unwinding machinery
+strip = true       # Strip debug symbols

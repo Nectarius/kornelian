@@ -14,6 +14,29 @@ macro_rules! db_err {
     };
 }
 
+/// Attempts to get the database connection.
+/// If it fails, logs the error with the given context label and evaluates the fallback expression.
+///
+/// Usage:
+///   let db = try_db!("create_quiz", return persist_quiz_locally(quiz));
+#[cfg(feature = "server")]
+macro_rules! try_db {
+    ($ctx:literal, $fallback:expr) => {{
+        use crate::db::database::get_db;
+        match get_db().await {
+            Ok(db) => db,
+            Err(err) => {
+                eprintln!("{} falling back to in-memory store: {err}", $ctx);
+                return $fallback;
+            }
+        }
+    }};
+}
+
+// =========================================================================
+// IN-MEMORY FALLBACK STORES
+// =========================================================================
+
 #[cfg(feature = "server")]
 static QUIZ_STORE: OnceLock<Mutex<Vec<Quiz>>> = OnceLock::new();
 
@@ -121,7 +144,10 @@ fn update_note_locally(
 }
 
 #[cfg(feature = "server")]
-fn delete_note_locally(account_id: bson::oid::ObjectId, id: bson::oid::ObjectId) -> Result<bool, ServerFnError> {
+fn delete_note_locally(
+    account_id: bson::oid::ObjectId,
+    id: bson::oid::ObjectId,
+) -> Result<bool, ServerFnError> {
     let mut store = note_store().lock().unwrap();
     let before = store.len();
     store.retain(|n| !(n.id == Some(id) && n.account_id == account_id));
@@ -203,17 +229,11 @@ fn upsert_account_locally(account: Account) -> Result<bson::oid::ObjectId, Serve
 
 #[server]
 pub async fn create_quiz(quiz: Quiz) -> Result<bson::oid::ObjectId, ServerFnError> {
-    use crate::db::database::get_db;
     use mongodb::error::{ErrorKind, WriteFailure};
 
     let quiz_for_storage = quiz.clone();
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("create_quiz falling back to in-memory store: {err}");
-            return persist_quiz_locally(quiz_for_storage);
-        }
-    };
+    let db = try_db!("create_quiz", persist_quiz_locally(quiz_for_storage));
+
     let coll = db.collection::<Quiz>("quizzes");
     let result = match coll.insert_one(quiz).await {
         Ok(result) => result,
@@ -257,19 +277,12 @@ mod tests {
 
 #[server]
 pub async fn get_quizzes() -> Result<Vec<Quiz>, ServerFnError> {
-    use crate::db::database::get_db;
     use futures_util::TryStreamExt;
     use mongodb::bson::doc;
 
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("get_quizzes failed to initialize DB: {err}");
-            return Ok(quiz_store().lock().unwrap().clone());
-        }
-    };
-
+    let db = try_db!("get_quizzes", Ok(quiz_store().lock().unwrap().clone()));
     let coll = db.collection::<Quiz>("quizzes");
+
     let mut cursor = match coll.find(doc! {}).await {
         Ok(cursor) => cursor,
         Err(err) => {
@@ -279,13 +292,10 @@ pub async fn get_quizzes() -> Result<Vec<Quiz>, ServerFnError> {
     };
 
     let mut quizzes = Vec::new();
-    while let Some(quiz) = match cursor.try_next().await {
-        Ok(quiz) => quiz,
-        Err(err) => {
-            eprintln!("get_quizzes cursor failed: {err}");
-            return Ok(quiz_store().lock().unwrap().clone());
-        }
-    } {
+    while let Some(quiz) = cursor.try_next().await.map_err(|e| {
+        eprintln!("get_quizzes cursor failed: {e}");
+        db_err!(e)
+    })? {
         quizzes.push(quiz);
     }
     Ok(quizzes)
@@ -293,18 +303,15 @@ pub async fn get_quizzes() -> Result<Vec<Quiz>, ServerFnError> {
 
 #[server]
 pub async fn delete_quiz(id: bson::oid::ObjectId) -> Result<bool, ServerFnError> {
-    use crate::db::database::get_db;
     use mongodb::bson::doc;
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("delete_quiz falling back to in-memory store: {err}");
-            let mut store = quiz_store().lock().unwrap();
-            let before = store.len();
-            store.retain(|quiz| quiz.id != Some(id));
-            return Ok(store.len() != before);
-        }
-    };
+
+    let db = try_db!("delete_quiz", {
+        let mut store = quiz_store().lock().unwrap();
+        let before = store.len();
+        store.retain(|quiz| quiz.id != Some(id));
+        Ok(store.len() != before)
+    });
+
     let coll = db.collection::<Quiz>("quizzes");
     let result = coll
         .delete_one(doc! { "_id": id })
@@ -319,22 +326,17 @@ pub async fn delete_quiz(id: bson::oid::ObjectId) -> Result<bool, ServerFnError>
 
 #[server]
 pub async fn upsert_account(account: Account) -> Result<bson::oid::ObjectId, ServerFnError> {
-    use crate::db::database::get_db;
     use mongodb::bson::doc;
     use mongodb::options::UpdateOptions;
 
     let account_for_storage = account.clone();
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("upsert_account falling back to in-memory store: {err}");
-            return upsert_account_locally(account_for_storage);
-        }
-    };
+    let db = try_db!("upsert_account", upsert_account_locally(account_for_storage));
+
     let coll = db.collection::<Account>("accounts");
     let query = doc! { "email": &account.email };
     let update = doc! { "$set": { "email": &account.email, "roles": &account.roles } };
     let options = UpdateOptions::builder().upsert(true).build();
+
     let result = match coll.update_one(query, update).with_options(options).await {
         Ok(result) => result,
         Err(err) => {
@@ -352,9 +354,7 @@ pub async fn upsert_account(account: Account) -> Result<bson::oid::ObjectId, Ser
             Ok(Some(existing)) => existing
                 .id
                 .ok_or_else(|| ServerFnError::new("Resolved account is missing an _id")),
-            Ok(None) => Err(ServerFnError::new(
-                "Failed to resolve upserted user context",
-            )),
+            Ok(None) => Err(ServerFnError::new("Failed to resolve upserted user context")),
             Err(err) => {
                 eprintln!("upsert_account lookup failed, falling back to in-memory store: {err}");
                 upsert_account_locally(account_for_storage)
@@ -365,18 +365,15 @@ pub async fn upsert_account(account: Account) -> Result<bson::oid::ObjectId, Ser
 
 #[server]
 pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
-    use crate::db::database::get_db;
     use futures_util::TryStreamExt;
     use mongodb::bson::doc;
 
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("get_accounts failed to initialize DB: {err}");
-            return Ok(account_store().lock().unwrap().clone());
-        }
-    };
+    let db = try_db!(
+        "get_accounts",
+        Ok(account_store().lock().unwrap().clone())
+    );
     let coll = db.collection::<Account>("accounts");
+
     let mut cursor = match coll.find(doc! {}).await {
         Ok(cursor) => cursor,
         Err(err) => {
@@ -384,14 +381,12 @@ pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
             return Ok(account_store().lock().unwrap().clone());
         }
     };
+
     let mut accounts = Vec::new();
-    while let Some(account) = match cursor.try_next().await {
-        Ok(account) => account,
-        Err(err) => {
-            eprintln!("get_accounts cursor failed: {err}");
-            return Ok(account_store().lock().unwrap().clone());
-        }
-    } {
+    while let Some(account) = cursor.try_next().await.map_err(|e| {
+        eprintln!("get_accounts cursor failed: {e}");
+        db_err!(e)
+    })? {
         accounts.push(account);
     }
     Ok(accounts)
@@ -405,21 +400,19 @@ pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
 pub async fn submit_quiz_answer(
     submission: QuizAnswer,
 ) -> Result<bson::oid::ObjectId, ServerFnError> {
-    use crate::db::database::get_db;
-
     let submission_for_storage = submission.clone();
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("submit_quiz_answer falling back to in-memory store: {err}");
-            return persist_submission_locally(submission_for_storage);
-        }
-    };
+    let db = try_db!(
+        "submit_quiz_answer",
+        persist_submission_locally(submission_for_storage)
+    );
+
     let coll = db.collection::<QuizAnswer>("quiz_answers");
     let result = match coll.insert_one(submission).await {
         Ok(result) => result,
         Err(err) => {
-            eprintln!("submit_quiz_answer insert failed, falling back to in-memory store: {err}");
+            eprintln!(
+                "submit_quiz_answer insert failed, falling back to in-memory store: {err}"
+            );
             return persist_submission_locally(submission_for_storage);
         }
     };
@@ -433,18 +426,10 @@ pub async fn submit_quiz_answer(
 pub async fn get_submissions(
     account_id: Option<bson::oid::ObjectId>,
 ) -> Result<Vec<QuizAnswer>, ServerFnError> {
-    use crate::db::database::get_db;
     use futures_util::TryStreamExt;
     use mongodb::bson::doc;
 
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("get_submissions failed to initialize DB: {err}");
-            return Ok(local_submissions(account_id));
-        }
-    };
-
+    let db = try_db!("get_submissions", Ok(local_submissions(account_id)));
     let coll = db.collection::<QuizAnswer>("quiz_answers");
     let filter = account_id
         .map(|id| doc! { "account_id": id })
@@ -459,13 +444,10 @@ pub async fn get_submissions(
     };
 
     let mut submissions = Vec::new();
-    while let Some(sub) = match cursor.try_next().await {
-        Ok(sub) => sub,
-        Err(err) => {
-            eprintln!("get_submissions cursor failed: {err}");
-            return Ok(local_submissions(account_id));
-        }
-    } {
+    while let Some(sub) = cursor.try_next().await.map_err(|e| {
+        eprintln!("get_submissions cursor failed: {e}");
+        db_err!(e)
+    })? {
         submissions.push(sub);
     }
     Ok(submissions)
@@ -477,17 +459,11 @@ pub async fn get_submissions(
 
 #[server]
 pub async fn get_global_settings() -> Result<Settings, ServerFnError> {
-    use crate::db::database::get_db;
     use mongodb::bson::doc;
 
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("get_global_settings failed to initialize DB: {err}");
-            return Ok(local_global_settings());
-        }
-    };
+    let db = try_db!("get_global_settings", Ok(local_global_settings()));
     let coll = db.collection::<Settings>("settings");
+
     let settings = match coll.find_one(doc! {}).await {
         Ok(settings) => settings,
         Err(err) => {
@@ -522,17 +498,13 @@ pub async fn get_global_settings() -> Result<Settings, ServerFnError> {
 
 #[server]
 pub async fn update_global_settings(updated: Settings) -> Result<bool, ServerFnError> {
-    use crate::db::database::get_db;
     use mongodb::bson::doc;
 
     let updated_for_storage = updated.clone();
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("update_global_settings falling back to in-memory store: {err}");
-            return Ok(update_local_global_settings(updated_for_storage));
-        }
-    };
+    let db = try_db!(
+        "update_global_settings",
+        Ok(update_local_global_settings(updated_for_storage))
+    );
     let coll = db.collection::<Settings>("settings");
 
     let query = match updated.id {
@@ -541,14 +513,13 @@ pub async fn update_global_settings(updated: Settings) -> Result<bool, ServerFnE
     };
 
     let applied_at_bson = bson::to_bson(&chrono::Utc::now()).map_err(|e| db_err!(e))?;
-
     let update_doc = doc! {
         "$set": {
             "current": updated.current,
             "applied_at": applied_at_bson,
             "applied_by": updated.applied_by,
             "question_count": updated.question_count,
-            "quiz_choice": updated.quiz_choice
+            "quiz_choice": updated.quiz_choice,
         }
     };
 
@@ -574,8 +545,6 @@ pub async fn create_note(
     title: String,
     content: String,
 ) -> Result<bson::oid::ObjectId, ServerFnError> {
-    use crate::db::database::get_db;
-
     let now = chrono::Utc::now();
     let note = Note {
         id: None,
@@ -587,15 +556,9 @@ pub async fn create_note(
     };
     let note_for_storage = note.clone();
 
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("create_note falling back to in-memory store: {err}");
-            return persist_note_locally(note_for_storage);
-        }
-    };
-
+    let db = try_db!("create_note", persist_note_locally(note_for_storage));
     let coll = db.collection::<Note>("notes");
+
     let result = match coll.insert_one(note).await {
         Ok(result) => result,
         Err(err) => {
@@ -612,20 +575,13 @@ pub async fn create_note(
 
 #[server]
 pub async fn get_notes(account_id: bson::oid::ObjectId) -> Result<Vec<Note>, ServerFnError> {
-    use crate::db::database::get_db;
     use futures_util::TryStreamExt;
     use mongodb::bson::doc;
 
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("get_notes failed to initialize DB: {err}");
-            return Ok(local_notes(account_id));
-        }
-    };
-
+    let db = try_db!("get_notes", Ok(local_notes(account_id)));
     let coll = db.collection::<Note>("notes");
     let filter = doc! { "account_id": account_id };
+
     let mut cursor = match coll.find(filter).await {
         Ok(cursor) => cursor,
         Err(err) => {
@@ -635,13 +591,10 @@ pub async fn get_notes(account_id: bson::oid::ObjectId) -> Result<Vec<Note>, Ser
     };
 
     let mut notes = Vec::new();
-    while let Some(note) = match cursor.try_next().await {
-        Ok(note) => note,
-        Err(err) => {
-            eprintln!("get_notes cursor failed: {err}");
-            return Ok(local_notes(account_id));
-        }
-    } {
+    while let Some(note) = cursor.try_next().await.map_err(|e| {
+        eprintln!("get_notes cursor failed: {e}");
+        db_err!(e)
+    })? {
         notes.push(note);
     }
     Ok(notes)
@@ -654,18 +607,14 @@ pub async fn update_note(
     title: String,
     content: String,
 ) -> Result<bool, ServerFnError> {
-    use crate::db::database::get_db;
     use mongodb::bson::doc;
 
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("update_note falling back to in-memory store: {err}");
-            return update_note_locally(account_id, id, title, content);
-        }
-    };
-
+    let db = try_db!(
+        "update_note",
+        update_note_locally(account_id, id, title, content)
+    );
     let coll = db.collection::<Note>("notes");
+
     let existing = match coll
         .find_one(doc! { "_id": id, "account_id": account_id })
         .await
@@ -713,18 +662,11 @@ pub async fn delete_note(
     account_id: bson::oid::ObjectId,
     id: bson::oid::ObjectId,
 ) -> Result<bool, ServerFnError> {
-    use crate::db::database::get_db;
     use mongodb::bson::doc;
 
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("delete_note falling back to in-memory store: {err}");
-            return delete_note_locally(account_id, id);
-        }
-    };
-
+    let db = try_db!("delete_note", delete_note_locally(account_id, id));
     let coll = db.collection::<Note>("notes");
+
     let existing = match coll
         .find_one(doc! { "_id": id, "account_id": account_id })
         .await
@@ -763,81 +705,70 @@ pub async fn delete_note(
 #[server(endpoint = "/api/current-user", headers: dioxus::fullstack::HeaderMap)]
 pub async fn get_current_user() -> Result<Option<Account>, ServerFnError> {
     use crate::auth::jwt::validate_jwt;
-    use crate::db::database::get_db;
-    use mongodb::bson::doc;
     use bson::oid::ObjectId;
-    
+    use mongodb::bson::doc;
+
     eprintln!("get_current_user called");
-    
-    // Get the session token from cookies
+
     let token = extract_session_token(&headers);
-    
     let token = match token {
         Some(t) => {
             eprintln!("Found session token in cookies");
             t
-        },
+        }
         None => {
-            eprintln!("No session token found in cookies. Headers: {:?}", headers.get("cookie"));
+            eprintln!(
+                "No session token found in cookies. Headers: {:?}",
+                headers.get("cookie")
+            );
             return Ok(None);
-        },
+        }
     };
-    
-    // Validate JWT and extract claims
+
     let claims = match validate_jwt(&token) {
         Ok(claims) => {
             eprintln!("JWT validated successfully for user: {}", claims.sub);
             claims
-        },
+        }
         Err(e) => {
             eprintln!("JWT validation failed: {:?}", e);
             return Ok(None);
         }
     };
-    
-    // Parse the user_id from claims
+
     let user_id = ObjectId::parse_str(&claims.user_id)
         .map_err(|e| ServerFnError::new(format!("Invalid user_id in JWT: {}", e)))?;
-    
+
     eprintln!("Looking up user in database: {}", user_id);
-    
-    // Fetch the account from database
-    let db = match get_db().await {
-        Ok(db) => db,
-        Err(err) => {
-            eprintln!("get_current_user failed to initialize DB: {err}");
-            // Try to find in local store
-            let store = account_store().lock().unwrap();
-            return Ok(store.iter().find(|a| a.id == Some(user_id)).cloned());
-        }
-    };
-    
+
+    let db = try_db!("get_current_user", {
+        let store = account_store().lock().unwrap();
+        Ok(store.iter().find(|a| a.id == Some(user_id)).cloned())
+    });
+
     let coll = db.collection::<Account>("accounts");
     let account = coll
         .find_one(doc! { "_id": user_id })
         .await
         .map_err(|e| ServerFnError::new(format!("Database error: {}", e)))?;
-    
+
     if let Some(ref acc) = account {
         eprintln!("Found account: {}", acc.email);
     } else {
         eprintln!("No account found in database for user_id: {}", user_id);
     }
-    
+
     Ok(account)
 }
 
 #[cfg(feature = "server")]
 fn extract_session_token(headers: &HeaderMap) -> Option<String> {
     let cookie_header = headers.get("cookie")?.to_str().ok()?;
-    
-    // Parse cookies and find session_token
     for cookie_str in cookie_header.split(';') {
         let cookie_str = cookie_str.trim();
         if let Some(value) = cookie_str.strip_prefix("session_token=") {
             return Some(value.to_string());
         }
     }
-    
     None
 }
