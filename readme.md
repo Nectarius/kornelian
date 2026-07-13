@@ -49,6 +49,9 @@ docker load -i kornelian.tar
 
 docker save -o kornelian.tar kornelian:latest
 
+docker save -o kornelian.tar taffeite-app:latest
+
+
 
 docker run  \
   --name kornelian \

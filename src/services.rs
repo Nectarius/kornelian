@@ -702,7 +702,7 @@ pub async fn delete_note(
 // 6. AUTHENTICATION OPERATIONS
 // =========================================================================
 
-#[server(endpoint = "/api/current-user", headers: dioxus::fullstack::HeaderMap)]
+#[server(headers: dioxus::fullstack::HeaderMap)]
 pub async fn get_current_user() -> Result<Option<Account>, ServerFnError> {
     use crate::auth::jwt::validate_jwt;
     use bson::oid::ObjectId;

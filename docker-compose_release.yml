@@ -1,0 +1,14 @@
+services:
+  app:
+    # Use the name/tag of your existing built image
+    image: kornelian:latest 
+    container_name: kornelian
+    ports:
+      - "443:443"
+    env_file:
+      - .env
+    volumes:
+      # Added ':ro' (read-only) for better security with certificate files
+      - ./kornelian.com.pem:/app/kornelian.com.pem:ro
+      - ./kornelian.com.key:/app/kornelian.com.key:ro
+    restart: unless-stopped

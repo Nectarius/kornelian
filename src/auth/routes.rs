@@ -1,7 +1,7 @@
 use dioxus::server::axum::{
     extract::Query,
     http::{header, StatusCode},
-    response::{IntoResponse, Redirect, Response},
+    response::{IntoResponse, Redirect, Response, Html}, // 👈 Add Html here
 };
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use oauth2::{
@@ -119,10 +119,13 @@ pub async fn google_callback_handler(
 
     // Set HTTP-only secure cookie
     let is_prod = crate::auth::config::is_production();
+
+    let same_site_policy = if is_prod { SameSite::None } else { SameSite::Lax };
+
     let cookie = Cookie::build((SESSION_COOKIE_NAME, jwt_token))
         .path("/")
         .max_age(time::Duration::days(7))
-        .same_site(SameSite::Lax)
+        .same_site(same_site_policy)
         .http_only(true)
         .secure(is_prod)
         .build();
@@ -133,12 +136,27 @@ pub async fn google_callback_handler(
     eprintln!("Setting session cookie: {}", cookie_header);
     eprintln!("Redirecting to dashboard for user: {}", user_info.email);
     
-    // Redirect to dashboard
+    // Browsers will DROP cookies set on a 302 Redirect response during a cross-site 
+    // navigation (from Google to your app). To force the browser to save the cookie,
+    // we return a 200 OK with an HTML page that redirects via JavaScript/Meta-refresh.
+    let html = r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="refresh" content="0; url=/" />
+    <script>window.location.replace("/");</script>
+</head>
+<body>
+    <p>Login successful. Redirecting to dashboard...</p>
+</body>
+</html>
+"#;
+
     Ok((
-        StatusCode::FOUND,
-        [(header::LOCATION, "/"), (header::SET_COOKIE, cookie_header.as_str())],
-    )
-        .into_response())
+        StatusCode::OK,
+        [(header::SET_COOKIE, cookie_header.as_str())],
+        Html(html)
+    ).into_response())
 }
 
 /// Fetch user information from Google's userinfo endpoint
@@ -165,17 +183,34 @@ async fn fetch_google_user_info(access_token: &str) -> Result<GoogleUserInfo, Bo
 pub async fn logout_handler() -> impl IntoResponse {
     // Create an expired cookie to clear the session
     let is_prod = crate::auth::config::is_production();
+
+    let same_site_policy = if is_prod { SameSite::None } else { SameSite::Lax };
+
     let cookie = Cookie::build((SESSION_COOKIE_NAME, ""))
         .path("/")
         .max_age(time::Duration::seconds(0))
-        .same_site(SameSite::Lax)
+        .same_site(same_site_policy)
         .http_only(true)
         .secure(is_prod)
         .build();
     
     // Redirect to login page after clearing cookie
+    let html = r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="refresh" content="0; url=/login" />
+    <script>window.location.replace("/login");</script>
+</head>
+<body>
+    <p>Logging out...</p>
+</body>
+</html>
+"#;
+
     (
+        StatusCode::OK,
         [(header::SET_COOKIE, cookie.to_string())],
-        Redirect::to("/login")
+        Html(html)
     )
 }
