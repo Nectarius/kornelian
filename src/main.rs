@@ -126,7 +126,7 @@ fn main() {
 
     #[cfg(feature = "server")]
     {
-        use auth::routes::{google_auth_handler, google_callback_handler, logout_handler};
+        use auth::routes::{google_auth_handler, google_callback_handler, logout_handler, twitter_auth_handler, twitter_callback_handler};
         use dioxus::server::axum::routing::get;
 
         let is_prod = auth::config::is_production();
@@ -153,6 +153,8 @@ fn main() {
                     .route("/auth/google", get(google_auth_handler))
                     .route("/auth/google/callback", get(google_callback_handler))
                     .route("/login/oauth2/code/google", get(google_callback_handler))
+                    .route("/auth/twitter", get(twitter_auth_handler))
+                    .route("/auth/twitter/callback", get(twitter_callback_handler))
                     .route("/auth/logout", get(logout_handler));
 
                 let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 443));
@@ -220,6 +222,8 @@ fn main() {
                     .route("/auth/google/callback", get(google_callback_handler))
                     // Alias for Spring Boot style OAuth redirect (used by some OAuth providers)
                     .route("/login/oauth2/code/google", get(google_callback_handler))
+                    .route("/auth/twitter", get(twitter_auth_handler))
+                    .route("/auth/twitter/callback", get(twitter_callback_handler))
                     .route("/auth/logout", get(logout_handler));
 
                 Ok(router)

@@ -1,5 +1,6 @@
 .env
 .credentials
+.twitter_credentials
 /target/
 *.pem
 *.key

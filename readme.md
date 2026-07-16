@@ -62,3 +62,10 @@ docker run  \
   -v "$(pwd)/kornelian.com.key:/app/kornelian.com.key" \
   --restart unless-stopped \
   kornelian:latest
+
+
+  cargo build --release --features server
+
+  dx build --release
+
+  assets and index.html
