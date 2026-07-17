@@ -5,6 +5,7 @@ use std::collections::HashMap;
 pub enum Language {
     English,
     Greek,
+    Russian,
 }
 
 impl Language {
@@ -12,6 +13,7 @@ impl Language {
         match self {
             Language::English => "English",
             Language::Greek => "Ελληνικά",
+            Language::Russian => "Русский",
         }
     }
 }
@@ -21,6 +23,7 @@ pub struct I18nContext {
     pub current_language: Signal<Language>,
     pub en_translations: HashMap<String, String>,
     pub el_translations: HashMap<String, String>,
+    pub ru_translations: HashMap<String, String>,
 }
 
 impl I18nContext {
@@ -29,8 +32,9 @@ impl I18nContext {
         let map = match lang {
             Language::English => &self.en_translations,
             Language::Greek => &self.el_translations,
+            Language::Russian => &self.ru_translations,
         };
-        
+
         map.get(key).cloned().unwrap_or_else(|| key.to_string())
     }
 }
@@ -52,11 +56,12 @@ fn parse_properties(content: &str) -> HashMap<String, String> {
 pub fn init_i18n() {
     let en_content = include_str!("../locales/en.properties");
     let el_content = include_str!("../locales/el.properties");
-
+    let ru_content = include_str!("../locales/ru.properties");
     let context = I18nContext {
         current_language: use_signal(|| Language::English),
         en_translations: parse_properties(en_content),
         el_translations: parse_properties(el_content),
+        ru_translations: parse_properties(ru_content),
     };
 
     use_context_provider(|| context);

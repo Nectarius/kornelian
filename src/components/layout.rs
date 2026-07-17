@@ -33,13 +33,27 @@ pub fn Layout() -> Element {
     }
 
     let user = auth_state.user.as_ref().unwrap();
-    let grid_style = format!("display: grid; grid-template-columns: {} 1fr; min-height: 100vh; font-family: system-ui, sans-serif; background-color: #f8fafc; color: #0f172a; transition: grid-template-columns 0.3s ease;", if *is_sidebar_open.read() { "260px" } else { "0px" });
-    let nav_style = format!("background-color: #1e293b; color: #f8fafc; display: flex; flex-direction: column; padding: {}; box-shadow: 2px 0 8px rgba(0,0,0,0.05); overflow: hidden; white-space: nowrap; transition: padding 0.3s ease;", if *is_sidebar_open.read() { "1.5rem" } else { "0" });
+    let grid_style = format!(
+        "display: grid; grid-template-columns: {} 1fr; min-height: 100vh; font-family: system-ui, sans-serif; background-color: #f8fafc; color: #0f172a; transition: grid-template-columns 0.3s ease;",
+        if *is_sidebar_open.read() {
+            "260px"
+        } else {
+            "0px"
+        }
+    );
+    let nav_style = format!(
+        "background-color: #1e293b; color: #f8fafc; display: flex; flex-direction: column; padding: {}; box-shadow: 2px 0 8px rgba(0,0,0,0.05); overflow: hidden; white-space: nowrap; transition: padding 0.3s ease;",
+        if *is_sidebar_open.read() {
+            "1.5rem"
+        } else {
+            "0"
+        }
+    );
 
     rsx! {
-        div { 
+        div {
             style: "{grid_style}",
-            nav { 
+            nav {
                 style: "{nav_style}",
                 div { style: "font-size: 1.25rem; font-weight: 700; margin-bottom: 2.5rem; display: flex; align-items: center; gap: 0.5rem; color: #38bdf8;",
                     "⚡ Best Quiz v0.8"
@@ -89,6 +103,7 @@ pub fn Layout() -> Element {
                             style: "padding: 0.5rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; background-color: white; font-size: 0.875rem; font-weight: 500; color: #475569; cursor: pointer;",
                             onchange: move |evt| {
                                 let lang = match evt.value().as_str() {
+                                    "ru" => crate::i18n::Language::Russian,
                                     "el" => crate::i18n::Language::Greek,
                                     _ => crate::i18n::Language::English,
                                 };
@@ -96,6 +111,8 @@ pub fn Layout() -> Element {
                             },
                             option { value: "en", selected: *i18n.current_language.read() == crate::i18n::Language::English, "English" }
                             option { value: "el", selected: *i18n.current_language.read() == crate::i18n::Language::Greek, "Ελληνικά" }
+                            option { value: "ru", selected: *i18n.current_language.read() == crate::i18n::Language::Russian, "Русский" }
+
                         }
                     }
                 }
