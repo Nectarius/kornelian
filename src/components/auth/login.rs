@@ -3,23 +3,23 @@ use dioxus::prelude::*;
 #[component]
 pub fn Login() -> Element {
     rsx! {
-        div { 
+        div {
             style: "min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: system-ui, sans-serif;",
-            div { 
+            div {
                 style: "background: white; border-radius: 1rem; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); padding: 3rem; max-width: 400px; width: 90%;",
-                
+
                 // Logo/Title Section
-                div { 
+                div {
                     style: "text-align: center; margin-bottom: 2.5rem;",
-                    div { 
+                    div {
                         style: "font-size: 3rem; margin-bottom: 0.5rem;",
                         "⚡"
                     }
-                    h1 { 
+                    h1 {
                         style: "font-size: 1.75rem; font-weight: 700; color: #1e293b; margin-bottom: 0.5rem;",
-                        "Quiz Engine"
+                        "Best Quiz"
                     }
-                    p { 
+                    p {
                         style: "color: #64748b; font-size: 0.95rem;",
                         "Sign in to access your dashboard"
                     }
@@ -48,7 +48,7 @@ pub fn Login() -> Element {
                         margin-bottom: 1rem;
                     ",
                     class: "google-signin-btn",
-                    
+
                     // Google Logo
                     svg {
                         width: "20",
@@ -81,7 +81,7 @@ pub fn Login() -> Element {
                         border: none;
                     ",
                     class: "twitter-signin-btn",
-                    
+
                     // X Logo
                     svg {
                         width: "20",
@@ -93,16 +93,16 @@ pub fn Login() -> Element {
                 }
 
                 // Additional Info
-                div { 
+                div {
                     style: "margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #e2e8f0; text-align: center;",
-                    p { 
+                    p {
                         style: "color: #64748b; font-size: 0.875rem; line-height: 1.6;",
                         "By signing in, you agree to our Terms of Service and Privacy Policy."
                     }
                 }
             }
         }
-        
+
         // CSS for hover effects
         style { "
             .google-signin-btn:hover {{

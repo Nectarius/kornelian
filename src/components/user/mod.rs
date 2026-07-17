@@ -1,8 +1,8 @@
-use dioxus::prelude::*;
-use crate::models::{Quiz, QuizAnswer, Answer};
+use crate::models::{Answer, Quiz, QuizAnswer};
 use crate::services::*;
 use bson::oid::ObjectId;
 use chrono::Utc;
+use dioxus::prelude::*;
 use std::time::Duration;
 
 mod notes;
@@ -60,7 +60,7 @@ pub fn TakeQuizSelection() -> Element {
     use_effect(move || {
         let active = *timer_active.read();
         let seconds = *timer_seconds.read();
-        
+
         if active && seconds > 0 {
             spawn(async move {
                 async_sleep(1).await;
@@ -70,27 +70,27 @@ pub fn TakeQuizSelection() -> Element {
             });
         } else if active && seconds == 0 {
             timer_active.set(false);
-            
+
             // Trigger timeout and move to the next question / submit quiz
             let quiz = active_quiz.peek().clone().unwrap();
             let idx = *current_question_idx.peek();
             let q_id = quiz.questions[idx].id;
-            
+
             let mut answers_vec = chosen_answers.peek().clone();
             let was_answered = answers_vec.iter().any(|a| a.question_id == q_id);
             if !was_answered {
-                let timeout_answer = Answer { 
-                    question_id: q_id, 
-                    text: "No answer - timed out".to_string(), 
-                    started: *runtime_start_time.peek(), 
+                let timeout_answer = Answer {
+                    question_id: q_id,
+                    text: "No answer - timed out".to_string(),
+                    started: *runtime_start_time.peek(),
                     completed: Utc::now(),
-                    timed_out: true 
+                    timed_out: true,
                 };
                 answers_vec.retain(|a| a.question_id != q_id);
                 answers_vec.push(timeout_answer);
                 chosen_answers.set(answers_vec.clone());
             }
-            
+
             if idx + 1 < quiz.questions.len() {
                 current_question_idx.set(idx + 1);
                 runtime_start_time.set(Utc::now());
@@ -103,17 +103,17 @@ pub fn TakeQuizSelection() -> Element {
                         Some(Ok(Some(user))) => (user.id.unwrap(), user.email),
                         _ => (ObjectId::new(), "anonymous@domain.com".to_string()),
                     };
-                    
+
                     let submission_doc = QuizAnswer {
-                        id: None, 
-                        quiz_id: quiz.id.unwrap(), 
+                        id: None,
+                        quiz_id: quiz.id.unwrap(),
                         account_id,
                         email,
                         quiz_title: quiz.title,
                         answers: answers_vec,
                     };
-                    if let Ok(_) = submit_quiz_answer(submission_doc).await { 
-                        quiz_submitted.set(true); 
+                    if let Ok(_) = submit_quiz_answer(submission_doc).await {
+                        quiz_submitted.set(true);
                     }
                 });
             }
@@ -131,7 +131,13 @@ pub fn TakeQuizSelection() -> Element {
     };
 
     let mut select_choice = move |q_id: ObjectId, text: String| {
-        let answer = Answer { question_id: q_id, text: text.clone(), started: *runtime_start_time.peek(), completed: Utc::now(), timed_out: false };
+        let answer = Answer {
+            question_id: q_id,
+            text: text.clone(),
+            started: *runtime_start_time.peek(),
+            completed: Utc::now(),
+            timed_out: false,
+        };
         let mut answers_vec = chosen_answers.peek().clone();
         answers_vec.retain(|a| a.question_id != q_id);
         answers_vec.push(answer);
@@ -153,17 +159,17 @@ pub fn TakeQuizSelection() -> Element {
                     Some(Ok(Some(user))) => (user.id.unwrap(), user.email),
                     _ => (ObjectId::new(), "anonymous@domain.com".to_string()),
                 };
-                
+
                 let submission_doc = QuizAnswer {
-                    id: None, 
-                    quiz_id: quiz.id.unwrap(), 
+                    id: None,
+                    quiz_id: quiz.id.unwrap(),
                     account_id,
                     email,
                     quiz_title: quiz.title,
                     answers: answers_vec,
                 };
-                if let Ok(_) = submit_quiz_answer(submission_doc).await { 
-                    quiz_submitted.set(true); 
+                if let Ok(_) = submit_quiz_answer(submission_doc).await {
+                    quiz_submitted.set(true);
                 }
             });
         }
@@ -173,25 +179,25 @@ pub fn TakeQuizSelection() -> Element {
         let quiz = active_quiz.read().clone().unwrap();
         let idx = *current_question_idx.read();
         let q_id = quiz.questions[idx].id;
-        
+
         // Check if question was answered
         let was_answered = chosen_answers.read().iter().any(|a| a.question_id == q_id);
-        
+
         if !was_answered {
             // Mark as timed out
-            let timeout_answer = Answer { 
-                question_id: q_id, 
-                text: "No answer - timed out".to_string(), 
-                started: *runtime_start_time.read(), 
+            let timeout_answer = Answer {
+                question_id: q_id,
+                text: "No answer - timed out".to_string(),
+                started: *runtime_start_time.read(),
                 completed: Utc::now(),
-                timed_out: true 
+                timed_out: true,
             };
             let mut answers_vec = chosen_answers.read().clone();
             answers_vec.retain(|a| a.question_id != q_id);
             answers_vec.push(timeout_answer);
             chosen_answers.set(answers_vec);
         }
-        
+
         if idx + 1 < quiz.questions.len() {
             current_question_idx.set(idx + 1);
             runtime_start_time.set(Utc::now());
@@ -207,48 +213,46 @@ pub fn TakeQuizSelection() -> Element {
     let push_results = move |_| {
         let current_quiz = active_quiz.read().clone().unwrap();
         let user_snapshot = current_user.read().clone();
-        
+
         let idx = *current_question_idx.read();
         let q_id = current_quiz.questions[idx].id;
-        
+
         let was_answered = chosen_answers.read().iter().any(|a| a.question_id == q_id);
         let mut answers_vec = chosen_answers.read().clone();
         if !was_answered {
-            let timeout_answer = Answer { 
-                question_id: q_id, 
-                text: "No answer - timed out".to_string(), 
-                started: *runtime_start_time.read(), 
+            let timeout_answer = Answer {
+                question_id: q_id,
+                text: "No answer - timed out".to_string(),
+                started: *runtime_start_time.read(),
                 completed: Utc::now(),
-                timed_out: true 
+                timed_out: true,
             };
             answers_vec.retain(|a| a.question_id != q_id);
             answers_vec.push(timeout_answer);
             chosen_answers.set(answers_vec.clone());
         }
-        
+
         timer_active.set(false);
-        
+
         spawn(async move {
             let (account_id, email) = match user_snapshot {
                 Some(Ok(Some(user))) => (user.id.unwrap(), user.email),
                 _ => (ObjectId::new(), "anonymous@domain.com".to_string()),
             };
-            
+
             let submission_doc = QuizAnswer {
-                id: None, 
-                quiz_id: current_quiz.id.unwrap(), 
+                id: None,
+                quiz_id: current_quiz.id.unwrap(),
                 account_id,
                 email,
                 quiz_title: current_quiz.title,
                 answers: answers_vec,
             };
-            if let Ok(_) = submit_quiz_answer(submission_doc).await { quiz_submitted.set(true); }
+            if let Ok(_) = submit_quiz_answer(submission_doc).await {
+                quiz_submitted.set(true);
+            }
         });
     };
-
-
-
-
 
     rsx! {
         style { "
@@ -264,7 +268,7 @@ pub fn TakeQuizSelection() -> Element {
         " }
         div { style: "max-width: 800px; margin: 0 auto;",
             if active_quiz.read().is_none() {
-                h1 { style: "font-size: 1.75rem; font-weight: 700; margin-bottom: 1.5rem;", "Select Target Quiz Engine" }
+                h1 { style: "font-size: 1.75rem; font-weight: 700; margin-bottom: 1.5rem;", "Select Target Best Quiz" }
                 {
                     let items: Vec<_> = quizzes.read().as_ref()
                         .and_then(|r| r.as_ref().ok())
@@ -304,11 +308,11 @@ pub fn TakeQuizSelection() -> Element {
                                 }
                                 div { style: "display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 2rem;",
                                     for choice in question.answer_choices.clone() {
-                                        button { 
-                                            style: "text-align: left; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s ease;", 
+                                        button {
+                                            style: "text-align: left; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s ease;",
                                             class: "quiz-choice-button",
-                                            onclick: move |_| select_choice(question.id, choice.text.clone()), 
-                                            "{choice.text}" 
+                                            onclick: move |_| select_choice(question.id, choice.text.clone()),
+                                            "{choice.text}"
                                         }
                                     }
                                 }
@@ -336,7 +340,7 @@ pub fn ResultsHistory() -> Element {
     rsx! {
         div { style: "display: flex; flex-direction: column; gap: 2rem; max-width: 900px; margin: 0 auto;",
             h1 { style: "font-size: 1.75rem; font-weight: 700; color: #1e293b;", "Personal Quiz Performance Insights" }
-            
+
             {
                 let summaries: Vec<_> = summaries_res.read().as_ref()
                     .and_then(|r| r.as_ref().ok())
@@ -347,7 +351,7 @@ pub fn ResultsHistory() -> Element {
                 let total_correct: i32 = summaries.iter().map(|s| s.score_correct).sum();
                 let total_questions: i32 = summaries.iter().map(|s| s.score_total).sum();
                 let total_timeouts: i32 = summaries.iter().map(|s| s.timed_out_count).sum();
-                
+
                 let accuracy = if total_questions > 0 {
                     (total_correct as f64 / total_questions as f64 * 100.0) as i32
                 } else {
@@ -396,7 +400,7 @@ pub fn ResultsHistory() -> Element {
                                                 div { style: "display: flex; justify-content: space-between; align-items: flex-start;",
                                                     div {
                                                         h4 { style: "font-size: 1.1rem; font-weight: 600; color: #1e293b;", "{record.quiz_title}" }
-                                                        p { style: "font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem;", 
+                                                        p { style: "font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem;",
                                                             "Completed At: {formatted_date}"
                                                         }
                                                     }
@@ -437,7 +441,7 @@ pub fn ResultsHistory() -> Element {
 pub fn GlobalDiscussionsView() -> Element {
     let mut messages_res = use_resource(move || get_discussion_messages());
     let mut new_message = use_signal(|| String::new());
-    
+
     // Auto-refresh polling every 5 seconds
     use_effect(move || {
         spawn(async move {
@@ -450,7 +454,9 @@ pub fn GlobalDiscussionsView() -> Element {
 
     let mut send_message = move |_| {
         let text = new_message.read().trim().to_string();
-        if text.is_empty() { return; }
+        if text.is_empty() {
+            return;
+        }
         new_message.set(String::new());
         spawn(async move {
             if let Ok(_) = create_discussion_message(text).await {
@@ -462,9 +468,9 @@ pub fn GlobalDiscussionsView() -> Element {
     rsx! {
         div { style: "display: flex; flex-direction: column; gap: 1.5rem; max-width: 900px; margin: 0 auto; height: calc(100vh - 120px);",
             h1 { style: "font-size: 1.75rem; font-weight: 700; color: #1e293b;", "Global Chat Board" }
-            
+
             div { style: "background: white; flex-grow: 1; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);",
-                
+
                 // Messages Area
                 div { style: "flex-grow: 1; padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; background: #f8fafc;",
                     if let Some(Ok(messages)) = &*messages_res.read() {
@@ -492,10 +498,10 @@ pub fn GlobalDiscussionsView() -> Element {
                         div { "Loading messages..." }
                     }
                 }
-                
+
                 // Input Area
                 div { style: "padding: 1rem; background: white; border-top: 1px solid #e2e8f0; display: flex; gap: 1rem; align-items: center;",
-                    input { 
+                    input {
                         style: "flex-grow: 1; padding: 0.75rem; border: 1px solid #cbd5e1; border-radius: 0.5rem; font-size: 1rem; outline: none;",
                         placeholder: "Type a message...",
                         value: "{new_message}",
@@ -506,7 +512,7 @@ pub fn GlobalDiscussionsView() -> Element {
                             }
                         }
                     }
-                    button { 
+                    button {
                         style: "background: #3b82f6; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; cursor: pointer; transition: background 0.2s;",
                         onclick: move |_| send_message(()),
                         "Send"

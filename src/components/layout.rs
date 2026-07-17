@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::Route;
-use crate::components::auth::{use_auth, AuthLoading, is_admin};
+use crate::components::auth::{AuthLoading, is_admin, use_auth};
+use dioxus::prelude::*;
 
 #[component]
 pub fn Layout() -> Element {
@@ -8,25 +8,25 @@ pub fn Layout() -> Element {
     let auth_state = auth.read();
     let nav = navigator();
     let mut i18n = crate::i18n::use_i18n();
-    
+
     // Show loading screen while checking auth
     if auth_state.is_loading {
         return rsx! { AuthLoading {} };
     }
-    
+
     // Redirect to login if not authenticated
     if auth_state.user.is_none() {
         nav.push("/login");
         return rsx! { AuthLoading {} };
     }
-    
+
     let user = auth_state.user.as_ref().unwrap();
-    
+
     rsx! {
         div { style: "display: flex; min-height: 100vh; font-family: system-ui, sans-serif; background-color: #f8fafc; color: #0f172a;",
             nav { style: "width: 260px; background-color: #1e293b; color: #f8fafc; display: flex; flex-direction: column; padding: 1.5rem; box-shadow: 2px 0 8px rgba(0,0,0,0.05);",
                 div { style: "font-size: 1.25rem; font-weight: 700; margin-bottom: 2.5rem; display: flex; align-items: center; gap: 0.5rem; color: #38bdf8;",
-                    "⚡ Quiz Engine v0.8"
+                    "⚡ Best Quiz v0.8"
                 }
                 div { style: "display: flex; flex-direction: column; gap: 0.5rem; flex-grow: 1;",
                     SidebarLink { to: Route::Dashboard {}, label: i18n.translate("dashboard"), icon: "📊" }
@@ -44,10 +44,10 @@ pub fn Layout() -> Element {
                     SidebarLink { to: Route::NotesView {}, label: i18n.translate("notes"), icon: "📜" }
                 }
                 div { style: "border-top: 1px solid #334155; padding-top: 1rem;",
-                    div { style: "font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.5rem;", 
+                    div { style: "font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.5rem;",
                         "{i18n.translate(\"logged_in_as\")}"
                     }
-                    div { style: "font-size: 0.9rem; color: #cbd5e1; font-weight: 500; margin-bottom: 0.75rem;", 
+                    div { style: "font-size: 0.9rem; color: #cbd5e1; font-weight: 500; margin-bottom: 0.75rem;",
                         "{user.email}"
                     }
                     a {
