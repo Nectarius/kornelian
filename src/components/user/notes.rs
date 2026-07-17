@@ -5,6 +5,7 @@ use bson::oid::ObjectId;
 
 #[component]
 pub fn NotesView() -> Element {
+    let mut i18n = crate::i18n::use_i18n();
     let nav = navigator();
     let current_user = use_resource(move || get_current_user());
     let mut notes = use_resource(move || async move {
@@ -79,25 +80,25 @@ pub fn NotesView() -> Element {
 
             rsx! {
                 div { style: "display: flex; flex-direction: column; gap: 2rem;",
-                    h1 { style: "font-size: 1.75rem; font-weight: 700;", "User Notes" }
-                    p { style: "color: #64748b;", "Personal notes for {user.email}" }
+                    h1 { style: "font-size: 1.75rem; font-weight: 700;", "{i18n.translate(\"user_notes\")}" }
+                    p { style: "color: #64748b;", "{i18n.translate(\"personal_notes_for\")} {user.email}" }
 
                     div { style: "background: white; padding: 1.5rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 1rem;",
-                        h2 { style: "font-size: 1.25rem; font-weight: 600;", "Create Note" }
+                        h2 { style: "font-size: 1.25rem; font-weight: 600;", "{i18n.translate(\"create_note\")}" }
                         div { style: "display: flex; flex-direction: column; gap: 0.25rem;",
-                            label { style: "font-size: 0.875rem; font-weight: 500; color: #64748b;", "Title" }
+                            label { style: "font-size: 0.875rem; font-weight: 500; color: #64748b;", "{i18n.translate(\"title\")}" }
                             input {
                                 style: "width: 100%; box-sizing: border-box; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.25rem;",
-                                placeholder: "Note title",
+                                placeholder: "{i18n.translate(\"note_title_placeholder\")}",
                                 value: "{new_title}",
                                 oninput: move |e| new_title.set(e.value()),
                             }
                         }
                         div { style: "display: flex; flex-direction: column; gap: 0.25rem;",
-                            label { style: "font-size: 0.875rem; font-weight: 500; color: #64748b;", "Content" }
+                            label { style: "font-size: 0.875rem; font-weight: 500; color: #64748b;", "{i18n.translate(\"content\")}" }
                             textarea {
                                 style: "width: 100%; box-sizing: border-box; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.25rem; min-height: 100px;",
-                                placeholder: "Write your note here...",
+                                placeholder: "{i18n.translate(\"write_note_placeholder\")}",
                                 value: "{new_content}",
                                 oninput: move |e| new_content.set(e.value()),
                             }
@@ -105,12 +106,12 @@ pub fn NotesView() -> Element {
                         button {
                             style: "background: #2563eb; color: white; padding: 0.75rem; border-radius: 0.375rem; border: none; font-weight: 600; cursor: pointer; align-self: flex-start;",
                             onclick: create_note_handler,
-                            "Create Note"
+                            "{i18n.translate(\"create_note\")}"
                         }
                     }
 
                     div { style: "display: flex; flex-direction: column; gap: 1rem;",
-                        h2 { style: "font-size: 1.25rem; font-weight: 600;", "Your Notes" }
+                        h2 { style: "font-size: 1.25rem; font-weight: 600;", "{i18n.translate(\"your_notes\")}" }
                         {
                             let note_list: Vec<Note> = notes.read().as_ref()
                                 .and_then(|r| r.as_ref().ok())
@@ -120,7 +121,7 @@ pub fn NotesView() -> Element {
                             if note_list.is_empty() {
                                 rsx! {
                                     div { style: "background: white; padding: 2rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; text-align: center; color: #94a3b8;",
-                                        p { "No notes yet. Create your first note above." }
+                                        p { "{i18n.translate(\"no_notes_yet\")}" }
                                     }
                                 }
                             } else {
@@ -156,12 +157,12 @@ pub fn NotesView() -> Element {
                                                                         }
                                                                     });
                                                                 },
-                                                                "Save"
+                                                                "{i18n.translate(\"save\")}"
                                                             }
                                                             button {
                                                                 style: "background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer;",
                                                                 onclick: move |_| editing_id.set(None),
-                                                                "Cancel"
+                                                                "{i18n.translate(\"cancel\")}"
                                                             }
                                                         }
                                                     }
@@ -180,7 +181,7 @@ pub fn NotesView() -> Element {
                                                                         edit_content.set(note.content.clone());
                                                                         editing_id.set(Some(note_id));
                                                                     },
-                                                                    "Edit"
+                                                                    "{i18n.translate(\"edit\")}"
                                                                 }
                                                                 button {
                                                                     style: "background: #ef4444; color: white; border: none; padding: 0.35rem 0.75rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.875rem;",
@@ -191,12 +192,12 @@ pub fn NotesView() -> Element {
                                                                             }
                                                                         });
                                                                     },
-                                                                    "Delete"
+                                                                    "{i18n.translate(\"delete\")}"
                                                                 }
                                                             }
                                                         }
                                                         p { style: "color: #475569; white-space: pre-wrap; margin-bottom: 0.5rem;", "{note.content}" }
-                                                        span { style: "font-size: 0.75rem; color: #94a3b8;", "Updated: {updated_label}" }
+                                                        span { style: "font-size: 0.75rem; color: #94a3b8;", "{i18n.translate(\"updated\")} {updated_label}" }
                                                     }
                                                 }
                                             }

@@ -47,6 +47,7 @@ async fn async_sleep(seconds: u64) {
 
 #[component]
 pub fn TakeQuizSelection() -> Element {
+    let mut i18n = crate::i18n::use_i18n();
     let quizzes = use_resource(move || get_quizzes());
     let current_user = use_resource(move || get_current_user());
     let mut active_quiz = use_signal(|| Option::<Quiz>::None);
@@ -268,7 +269,7 @@ pub fn TakeQuizSelection() -> Element {
         " }
         div { style: "max-width: 800px; width: 100%; margin: 0 auto; box-sizing: border-box;",
             if active_quiz.read().is_none() {
-                h1 { style: "font-size: 1.75rem; font-weight: 700; margin-bottom: 1.5rem;", "Select Target Best Quiz" }
+                h1 { style: "font-size: 1.75rem; font-weight: 700; margin-bottom: 1.5rem;", "{i18n.translate(\"select_quiz\")}" }
                 {
                     let items: Vec<_> = quizzes.read().as_ref()
                         .and_then(|r| r.as_ref().ok())
@@ -278,7 +279,7 @@ pub fn TakeQuizSelection() -> Element {
                         for quiz in items {
                             div { style: "background: white; padding: 1.5rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: center; margin-bottom: 1rem; box-sizing: border-box; width: 100%;",
                                 div { h3 { style: "font-weight: 600;", "{quiz.title}" }, p { style: "color: #64748b;", "{quiz.description}" } }
-                                button { style: "background: #2563eb; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer; white-space: nowrap;", onclick: move |_| start_quiz(quiz.clone()), "Launch" }
+                                button { style: "background: #2563eb; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer; white-space: nowrap;", onclick: move |_| start_quiz(quiz.clone()), "{i18n.translate(\"launch\")}" }
                             }
                         }
                     }
@@ -289,8 +290,8 @@ pub fn TakeQuizSelection() -> Element {
                     if *quiz_submitted.read() {
                         rsx! {
                             div { style: "text-align: center; background: white; padding: 3rem; border-radius: 0.5rem;",
-                                h2 { style: "color: #10b981;", "Submission Completed Successfully!" }
-                                button { style: "margin-top: 1rem; background: #0f172a; color: white; padding: 0.5rem 1rem; border: none;", onclick: move |_| active_quiz.set(None), "Return" }
+                                h2 { style: "color: #10b981;", "{i18n.translate(\"submission_completed\")}" }
+                                button { style: "margin-top: 1rem; background: #0f172a; color: white; padding: 0.5rem 1rem; border: none;", onclick: move |_| active_quiz.set(None), "{i18n.translate(\"return\")}" }
                             }
                         }
                     } else {
@@ -317,11 +318,11 @@ pub fn TakeQuizSelection() -> Element {
                                     }
                                 }
                                 div { style: "display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;",
-                                    button { disabled: idx == 0, onclick: move |_| current_question_idx.set(idx - 1), "Back" }
+                                    button { disabled: idx == 0, onclick: move |_| current_question_idx.set(idx - 1), "{i18n.translate(\"back\")}" }
                                     if idx + 1 < quiz.questions.len() {
-                                        button { onclick: handle_next_click, "Next" }
+                                        button { onclick: handle_next_click, "{i18n.translate(\"next\")}" }
                                     } else {
-                                        button { style: "background: #10b981; color: white;", onclick: push_results, "Submit Answers" }
+                                        button { style: "background: #10b981; color: white;", onclick: push_results, "{i18n.translate(\"submit_answers\")}" }
                                     }
                                 }
                             }
