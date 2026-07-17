@@ -38,7 +38,9 @@ pub fn Layout() -> Element {
                     if is_admin(&user.email) {
                         SidebarLink { to: Route::AccountManagement {}, label: i18n.translate("user_accounts"), icon: "👥" }
                     }
-                    SidebarLink { to: Route::SettingsPage {}, label: i18n.translate("global_settings"), icon: "⚙️" }
+                    if is_admin(&user.email) {
+                        SidebarLink { to: Route::SettingsPage {}, label: i18n.translate("global_settings"), icon: "⚙️" }
+                    }
                     SidebarLink { to: Route::AllResultsSummaryView {}, label: i18n.translate("global_summary"), icon: "🌍" }
                     SidebarLink { to: Route::GlobalDiscussionsView {}, label: i18n.translate("global_discussions"), icon: "💬" }
                     SidebarLink { to: Route::NotesView {}, label: i18n.translate("notes"), icon: "📜" }
