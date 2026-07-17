@@ -69,3 +69,8 @@ docker run  \
   dx build --release
 
   assets and index.html
+
+  sudo systemctl enable taffeite-app
+sudo systemctl start taffeite-app
+sudo systemctl stop taffeite-app
+systemctl status taffeite-app

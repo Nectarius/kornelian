@@ -266,7 +266,7 @@ pub fn TakeQuizSelection() -> Element {
                 box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.15);
             }}
         " }
-        div { style: "max-width: 800px; margin: 0 auto;",
+        div { style: "max-width: 800px; width: 100%; margin: 0 auto; box-sizing: border-box;",
             if active_quiz.read().is_none() {
                 h1 { style: "font-size: 1.75rem; font-weight: 700; margin-bottom: 1.5rem;", "Select Target Best Quiz" }
                 {
@@ -276,9 +276,9 @@ pub fn TakeQuizSelection() -> Element {
                         .unwrap_or_default();
                     rsx! {
                         for quiz in items {
-                            div { style: "background: white; padding: 1.5rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;",
+                            div { style: "background: white; padding: 1.5rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: center; margin-bottom: 1rem; box-sizing: border-box; width: 100%;",
                                 div { h3 { style: "font-weight: 600;", "{quiz.title}" }, p { style: "color: #64748b;", "{quiz.description}" } }
-                                button { style: "background: #2563eb; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer;", onclick: move |_| start_quiz(quiz.clone()), "Launch" }
+                                button { style: "background: #2563eb; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer; white-space: nowrap;", onclick: move |_| start_quiz(quiz.clone()), "Launch" }
                             }
                         }
                     }
@@ -299,8 +299,8 @@ pub fn TakeQuizSelection() -> Element {
                         let time_left = *timer_seconds.read();
                         let timer_color = if time_left <= 5 { "#ef4444" } else if time_left <= 10 { "#f59e0b" } else { "#10b981" };
                         rsx! {
-                            div { style: "background: white; padding: 2rem; border-radius: 0.5rem; border: 1px solid #e2e8f0;",
-                                div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;",
+                            div { style: "background: white; padding: 2rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; box-sizing: border-box; width: 100%;",
+                                div { style: "display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;",
                                     h2 { style: "margin: 0;", "{question.text}" }
                                     div { style: "background: {timer_color}; color: white; padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 700; font-size: 1.25rem;",
                                         "⏱ {time_left}s"
@@ -309,14 +309,14 @@ pub fn TakeQuizSelection() -> Element {
                                 div { style: "display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 2rem;",
                                     for choice in question.answer_choices.clone() {
                                         button {
-                                            style: "text-align: left; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s ease;",
+                                            style: "text-align: left; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s ease; width: 100%; box-sizing: border-box; word-break: break-word;",
                                             class: "quiz-choice-button",
                                             onclick: move |_| select_choice(question.id, choice.text.clone()),
                                             "{choice.text}"
                                         }
                                     }
                                 }
-                                div { style: "display: flex; justify-content: space-between;",
+                                div { style: "display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;",
                                     button { disabled: idx == 0, onclick: move |_| current_question_idx.set(idx - 1), "Back" }
                                     if idx + 1 < quiz.questions.len() {
                                         button { onclick: handle_next_click, "Next" }

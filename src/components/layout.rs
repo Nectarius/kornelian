@@ -8,6 +8,18 @@ pub fn Layout() -> Element {
     let auth_state = auth.read();
     let nav = navigator();
     let mut i18n = crate::i18n::use_i18n();
+    let mut is_sidebar_open = use_signal(|| true);
+
+    use_effect(move || {
+        let eval = dioxus::document::eval("return window.innerWidth < 768;");
+        spawn(async move {
+            if let Ok(res) = eval.await {
+                if res.as_bool().unwrap_or(false) {
+                    is_sidebar_open.set(false);
+                }
+            }
+        });
+    });
 
     // Show loading screen while checking auth
     if auth_state.is_loading {
@@ -21,10 +33,14 @@ pub fn Layout() -> Element {
     }
 
     let user = auth_state.user.as_ref().unwrap();
+    let grid_style = format!("display: grid; grid-template-columns: {} 1fr; min-height: 100vh; font-family: system-ui, sans-serif; background-color: #f8fafc; color: #0f172a; transition: grid-template-columns 0.3s ease;", if *is_sidebar_open.read() { "260px" } else { "0px" });
+    let nav_style = format!("background-color: #1e293b; color: #f8fafc; display: flex; flex-direction: column; padding: {}; box-shadow: 2px 0 8px rgba(0,0,0,0.05); overflow: hidden; white-space: nowrap; transition: padding 0.3s ease;", if *is_sidebar_open.read() { "1.5rem" } else { "0" });
 
     rsx! {
-        div { style: "display: flex; min-height: 100vh; font-family: system-ui, sans-serif; background-color: #f8fafc; color: #0f172a;",
-            nav { style: "width: 260px; background-color: #1e293b; color: #f8fafc; display: flex; flex-direction: column; padding: 1.5rem; box-shadow: 2px 0 8px rgba(0,0,0,0.05);",
+        div { 
+            style: "{grid_style}",
+            nav { 
+                style: "{nav_style}",
                 div { style: "font-size: 1.25rem; font-weight: 700; margin-bottom: 2.5rem; display: flex; align-items: center; gap: 0.5rem; color: #38bdf8;",
                     "⚡ Best Quiz v0.8"
                 }
@@ -59,11 +75,16 @@ pub fn Layout() -> Element {
                     }
                 }
             }
-            div { style: "flex-grow: 1; display: flex; flex-direction: column; min-width: 0;",
+            div { style: "display: flex; flex-direction: column; min-width: 0; overflow: hidden;",
                 header { style: "height: 64px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; padding: 0 2rem; box-shadow: 0 1px 2px rgba(0,0,0,0.02);",
-                    h2 { style: "font-size: 1.1rem; font-weight: 600; color: #334155;", "{i18n.translate(\"enterprise_workspace\")}" }
                     div { style: "display: flex; align-items: center; gap: 1rem;",
-                        div { style: "background-color: #f1f5f9; padding: 0.5rem 1rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 500; color: #475569;", "{i18n.translate(\"environment\")}" }
+                        button {
+                            style: "background: transparent; border: none; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 0.375rem; color: #475569;",
+                            onclick: move |_| { let current = *is_sidebar_open.read(); is_sidebar_open.set(!current); },
+                            "☰"
+                        }
+                    }
+                    div { style: "display: flex; align-items: center; gap: 1rem;",
                         select {
                             style: "padding: 0.5rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; background-color: white; font-size: 0.875rem; font-weight: 500; color: #475569; cursor: pointer;",
                             onchange: move |evt| {

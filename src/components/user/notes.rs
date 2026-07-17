@@ -87,7 +87,7 @@ pub fn NotesView() -> Element {
                         div { style: "display: flex; flex-direction: column; gap: 0.25rem;",
                             label { style: "font-size: 0.875rem; font-weight: 500; color: #64748b;", "Title" }
                             input {
-                                style: "padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.25rem;",
+                                style: "width: 100%; box-sizing: border-box; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.25rem;",
                                 placeholder: "Note title",
                                 value: "{new_title}",
                                 oninput: move |e| new_title.set(e.value()),
@@ -96,7 +96,7 @@ pub fn NotesView() -> Element {
                         div { style: "display: flex; flex-direction: column; gap: 0.25rem;",
                             label { style: "font-size: 0.875rem; font-weight: 500; color: #64748b;", "Content" }
                             textarea {
-                                style: "padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.25rem; min-height: 100px;",
+                                style: "width: 100%; box-sizing: border-box; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.25rem; min-height: 100px;",
                                 placeholder: "Write your note here...",
                                 value: "{new_content}",
                                 oninput: move |e| new_content.set(e.value()),
@@ -134,16 +134,16 @@ pub fn NotesView() -> Element {
                                                 rsx! {
                                                     div { style: "background: white; padding: 1.5rem; border-radius: 0.5rem; border: 2px solid #2563eb; display: flex; flex-direction: column; gap: 1rem;",
                                                         input {
-                                                            style: "padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.25rem; font-weight: 600;",
+                                                            style: "width: 100%; box-sizing: border-box; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.25rem; font-weight: 600;",
                                                             value: "{edit_title}",
                                                             oninput: move |e| edit_title.set(e.value()),
                                                         }
                                                         textarea {
-                                                            style: "padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.25rem; min-height: 80px;",
+                                                            style: "width: 100%; box-sizing: border-box; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.25rem; min-height: 80px;",
                                                             value: "{edit_content}",
                                                             oninput: move |e| edit_content.set(e.value()),
                                                         }
-                                                        div { style: "display: flex; gap: 0.5rem;",
+                                                        div { style: "display: flex; flex-wrap: wrap; gap: 0.5rem;",
                                                             button {
                                                                 style: "background: #10b981; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer; font-weight: 600;",
                                                                 onclick: move |_| {
@@ -170,7 +170,7 @@ pub fn NotesView() -> Element {
                                                 let updated_label = note.updated_at.format("%Y-%m-%d %H:%M UTC").to_string();
                                                 rsx! {
                                                     div { style: "background: white; padding: 1.5rem; border-radius: 0.5rem; border: 1px solid #e2e8f0;",
-                                                        div { style: "display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;",
+                                                        div { style: "display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;",
                                                             h3 { style: "font-weight: 600; font-size: 1.1rem;", "{note.title}" }
                                                             div { style: "display: flex; gap: 0.5rem;",
                                                                 button {
