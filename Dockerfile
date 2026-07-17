@@ -21,8 +21,9 @@ RUN mkdir src && \
     cargo build --release --features server && \
     rm -rf src
 
-# Copy the actual source code
+# Copy the actual source code and localization files
 COPY src ./src
+COPY locales ./locales
 
 # Build the frontend WASM and static assets
 RUN dx build --release --platform web
