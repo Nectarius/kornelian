@@ -404,13 +404,29 @@ pub fn AllResultsSummaryView() -> Element {
 
                     if !quiz_top_achievers.is_empty() {
                         div { style: "background: white; padding: 1.5rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-top: 1rem;",
-                            h2 { style: "font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-bottom: 1.5rem;", "🏅 Top Achiever by Quest" }
+                            h2 { style: "font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-bottom: 1.5rem;", "🏅 Quiz Metrics & Top Achievers" }
                             div { style: "display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem;",
                                 for (title, (email, correct, total, timeouts)) in quiz_top_achievers {
                                     div { key: "{title}", style: "padding: 1rem; border: 1px solid #e2e8f0; border-radius: 0.375rem; background: #f8fafc; border-left: 4px solid #3b82f6;",
-                                        h4 { style: "font-size: 1.05rem; font-weight: 700; color: #1e293b; margin-bottom: 0.5rem;", "{title}" }
-                                        p { style: "font-size: 0.9rem; color: #475569; margin: 0; font-weight: 600;", "{email}" }
-                                        p { style: "font-size: 0.8rem; color: #64748b; margin-top: 0.25rem;", "Score: {correct}/{total}  |  Timeouts: {timeouts}" }
+                                        div { style: "display: flex; justify-content: space-between; align-items: flex-start;",
+                                            div {
+                                                h4 { style: "font-size: 1.05rem; font-weight: 700; color: #1e293b; margin-bottom: 0.5rem;", "{title}" }
+                                                p { style: "font-size: 0.9rem; color: #475569; margin: 0; font-weight: 600;", "{email}" }
+                                                p { style: "font-size: 0.8rem; color: #64748b; margin-top: 0.25rem;", "Score: {correct}/{total}  |  Timeouts: {timeouts}" }
+                                            }
+                                            {
+                                                let safe_href = title.replace(" ", "%20").replace("?", "%3F").replace("#", "%23").replace("/", "%2F");
+                                                rsx! {
+                                                    a {
+                                                        href: "/api/export/pdf/{safe_href}",
+                                                        download: "{title}_results.pdf",
+                                                        target: "_blank",
+                                                        style: "background: #1e293b; color: white; padding: 0.5rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; font-weight: 600; text-decoration: none; transition: background 0.2s;",
+                                                        "⬇️ All Results (PDF)"
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

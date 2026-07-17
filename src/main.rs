@@ -160,7 +160,8 @@ fn main() {
                     .route("/login/oauth2/code/google", get(google_callback_handler))
                     .route("/auth/twitter", get(twitter_auth_handler))
                     .route("/auth/twitter/callback", get(twitter_callback_handler))
-                    .route("/auth/logout", get(logout_handler));
+                    .route("/auth/logout", get(logout_handler))
+                    .route("/api/export/pdf/{title}", get(export_pdf_handler));
 
                 let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 443));
                 let cert_path = "kornelian.com.pem";
@@ -229,7 +230,8 @@ fn main() {
                     .route("/login/oauth2/code/google", get(google_callback_handler))
                     .route("/auth/twitter", get(twitter_auth_handler))
                     .route("/auth/twitter/callback", get(twitter_callback_handler))
-                    .route("/auth/logout", get(logout_handler));
+                    .route("/auth/logout", get(logout_handler))
+                    .route("/api/export/pdf/{title}", get(export_pdf_handler));
 
                 Ok(router)
             });
@@ -255,4 +257,125 @@ fn PageNotFound(route: Vec<String>) -> Element {
             Link { to: Route::Dashboard {}, "Go Home" }
         }
     }
+}
+
+#[cfg(feature = "server")]
+async fn export_pdf_handler(dioxus::server::axum::extract::Path(quiz_title): dioxus::server::axum::extract::Path<String>) -> dioxus::server::axum::response::Response {
+    use dioxus::server::axum::response::IntoResponse;
+    use dioxus::server::axum::http::{header, StatusCode};
+    
+    let submissions = match crate::services::get_submissions(None).await {
+        Ok(s) => s,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch results").into_response(),
+    };
+    
+    let filtered: Vec<_> = submissions.into_iter().filter(|s| s.quiz_title == quiz_title).collect();
+    
+    if filtered.is_empty() {
+        return (StatusCode::NOT_FOUND, "No results found for this quiz").into_response();
+    }
+    
+    let quizzes = match crate::services::get_quizzes().await {
+        Ok(q) => q,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch quizzes").into_response(),
+    };
+    let current_quiz = quizzes.into_iter().find(|q| q.title == quiz_title);
+    
+    let font_bytes = include_bytes!("Roboto-Regular.ttf").to_vec();
+    let font_family = genpdf::fonts::FontFamily {
+        regular: genpdf::fonts::FontData::new(font_bytes.clone(), None).unwrap(),
+        bold: genpdf::fonts::FontData::new(font_bytes.clone(), None).unwrap(),
+        italic: genpdf::fonts::FontData::new(font_bytes.clone(), None).unwrap(),
+        bold_italic: genpdf::fonts::FontData::new(font_bytes, None).unwrap(),
+    };
+    
+    let mut doc = genpdf::Document::new(font_family);
+    doc.set_title(format!("Results for {}", quiz_title));
+    
+    let mut decorator = genpdf::SimplePageDecorator::new();
+    decorator.set_margins(10);
+    doc.set_page_decorator(decorator);
+    
+    use genpdf::elements::*;
+    use genpdf::Element;
+    doc.push(Paragraph::new(format!("Detailed Results: {}", quiz_title)).aligned(genpdf::Alignment::Center));
+    doc.push(Break::new(1));
+    
+    for sub in filtered {
+        // Calculate scores
+        let mut score_correct = 0;
+        let mut timed_out_count = 0;
+        let mut score_total = sub.answers.len() as i32;
+        
+        if let Some(ref quiz) = current_quiz {
+            score_total = quiz.questions.len() as i32;
+            for ans in &sub.answers {
+                if ans.timed_out {
+                    timed_out_count += 1;
+                } else if let Some(question) = quiz.questions.iter().find(|q| q.id == ans.question_id) {
+                    if let Some(correct_choice) = question.answer_choices.iter().find(|c| c.correct_response) {
+                        if ans.text == correct_choice.text {
+                            score_correct += 1;
+                        }
+                    }
+                }
+            }
+        } else {
+            for ans in &sub.answers {
+                if ans.timed_out {
+                    timed_out_count += 1;
+                }
+            }
+        }
+        
+        let completed_at = sub.answers.iter().map(|a| a.completed).max().unwrap_or_else(|| chrono::Utc::now());
+        
+        // Add User Header
+        let header_str = format!("User: {}  |  Score: {}/{}  |  Timeouts: {}  |  Completed: {}", sub.email, score_correct, score_total, timed_out_count, completed_at.format("%Y-%m-%d %H:%M"));
+        doc.push(Paragraph::new(header_str).styled(genpdf::style::Style::new().bold()));
+        
+        let mut table = TableLayout::new(vec![3, 2, 1, 1]);
+        table.row().element(Paragraph::new("Question").styled(genpdf::style::Style::new().bold()))
+                   .element(Paragraph::new("Answer").styled(genpdf::style::Style::new().bold()))
+                   .element(Paragraph::new("Time (s)").styled(genpdf::style::Style::new().bold()))
+                   .element(Paragraph::new("Timeout?").styled(genpdf::style::Style::new().bold()))
+                   .push().unwrap();
+                   
+        for ans in sub.answers {
+            let q_text = if let Some(ref quiz) = current_quiz {
+                if let Some(question) = quiz.questions.iter().find(|q| q.id == ans.question_id) {
+                    question.text.clone()
+                } else {
+                    "Unknown Question".to_string()
+                }
+            } else {
+                "Unknown Question".to_string()
+            };
+            
+            let elapsed_s = (ans.completed - ans.started).num_milliseconds() as f64 / 1000.0;
+            
+            table.row().element(Paragraph::new(q_text))
+                       .element(Paragraph::new(ans.text))
+                       .element(Paragraph::new(format!("{:.1}", elapsed_s)))
+                       .element(Paragraph::new(if ans.timed_out { "Yes" } else { "No" }))
+                       .push().unwrap();
+        }
+        
+        doc.push(table);
+        doc.push(Break::new(1));
+    }
+    
+    let mut buf = Vec::new();
+    if let Err(e) = doc.render(&mut buf) {
+        eprintln!("PDF rendering error: {:?}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to render PDF").into_response();
+    }
+    
+    let safe_title = quiz_title.replace(" ", "_").replace("/", "_");
+    let headers = [
+        (header::CONTENT_TYPE, "application/pdf".to_string()),
+        (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}_results.pdf\"", safe_title)),
+    ];
+    
+    (headers, buf).into_response()
 }
