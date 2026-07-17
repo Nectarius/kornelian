@@ -5,6 +5,7 @@ mod components;
 mod db;
 mod models;
 mod services;
+pub mod i18n;
 
 #[cfg(feature = "server")]
 mod auth;
@@ -245,6 +246,7 @@ fn main() {
 }
 
 fn App() -> Element {
+    crate::i18n::init_i18n();
     rsx! { Router::<Route> {} }
 }
 
