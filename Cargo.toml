@@ -55,3 +55,7 @@ lto = true         # Link-Time Optimization
 codegen-units = 1  # Single codegen unit for maximum optimization
 panic = "abort"   # Remove panic unwinding machinery
 strip = true       # Strip debug symbols
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-timers = { version = "0.3", features = ["futures"] }
+

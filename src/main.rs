@@ -11,10 +11,11 @@ mod auth;
 
 use components::admin::{
     AccountManagementView as AccountManagement, QuizAdminView as QuizAdmin, SettingsPage,
+    AllResultsSummaryView,
 };
 use components::auth::{AuthProvider, Login};
 use components::layout::Layout;
-use components::user::{Dashboard, NotesView, ResultsHistory, TakeQuizSelection};
+use components::user::{Dashboard, NotesView, ResultsHistory, TakeQuizSelection, GlobalDiscussionsView};
 
 // =========================================================================
 // DIOXUS APPLICATION ROUTER DEFINITION
@@ -39,10 +40,14 @@ pub enum Route {
             ResultsHistory {},
             #[route("/notes")]
             NotesView {},
+            #[route("/discussions")]
+            GlobalDiscussionsView {},
             #[route("/admin/accounts")]
             AccountManagement {},
             #[route("/admin/settings")]
             SettingsPage {},
+            #[route("/admin/summary")]
+            AllResultsSummaryView {},
         #[end_layout]
         #[route("/:..route")]
         PageNotFound { route: Vec<String> },

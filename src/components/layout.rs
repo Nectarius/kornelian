@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use crate::Route;
-use crate::components::auth::{use_auth, AuthLoading};
+use crate::components::auth::{use_auth, AuthLoading, is_admin};
 
 #[component]
 pub fn Layout() -> Element {
@@ -29,12 +29,18 @@ pub fn Layout() -> Element {
                 }
                 div { style: "display: flex; flex-direction: column; gap: 0.5rem; flex-grow: 1;",
                     SidebarLink { to: Route::Dashboard {}, label: "Dashboard", icon: "📊" }
-                    SidebarLink { to: Route::QuizAdmin {}, label: "Quiz Builder", icon: "🛠️" }
+                    if is_admin(&user.email) {
+                        SidebarLink { to: Route::QuizAdmin {}, label: "Quiz Builder", icon: "🛠️" }
+                    }
                     SidebarLink { to: Route::TakeQuizSelection {}, label: "Execute Quiz", icon: "📝" }
                     SidebarLink { to: Route::ResultsHistory {}, label: "Submission History", icon: "📜" }
-                    SidebarLink { to: Route::AccountManagement {}, label: "User Accounts", icon: "👥" }
+                    if is_admin(&user.email) {
+                        SidebarLink { to: Route::AccountManagement {}, label: "User Accounts", icon: "👥" }
+                    }
                     SidebarLink { to: Route::SettingsPage {}, label: "Global Settings", icon: "⚙️" }
-                          SidebarLink { to: Route::NotesView {}, label: "Notes", icon: "📜" }
+                    SidebarLink { to: Route::AllResultsSummaryView {}, label: "Global Summary", icon: "🌍" }
+                    SidebarLink { to: Route::GlobalDiscussionsView {}, label: "Global Discussions", icon: "💬" }
+                    SidebarLink { to: Route::NotesView {}, label: "Notes", icon: "📜" }
                 }
                 div { style: "border-top: 1px solid #334155; padding-top: 1rem;",
                     div { style: "font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.5rem;", 

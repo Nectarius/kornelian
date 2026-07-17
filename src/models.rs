@@ -38,6 +38,31 @@ pub struct AnswerChoice {
     pub correct_response: bool,
 }
 
+impl Question {
+    pub fn validate(&self) -> Result<(), String> {
+        let correct_count = self.answer_choices.iter().filter(|c| c.correct_response).count();
+        if correct_count != 1 {
+            return Err(format!(
+                "Question '{}' must have exactly one correct answer choice (found {})",
+                self.text, correct_count
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Quiz {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.title.trim().is_empty() {
+            return Err("Quiz title cannot be empty".to_string());
+        }
+        for q in &self.questions {
+            q.validate()?;
+        }
+        Ok(())
+    }
+}
+
 // =========================================================================
 // 2. QUIZ ANSWERS (SUBMISSIONS) COLLECTION MODELS
 // =========================================================================
@@ -59,6 +84,8 @@ pub struct Answer {
     pub text: String, 
     pub started: DateTime<Utc>,
     pub completed: DateTime<Utc>,
+    #[serde(default)]
+    pub timed_out: bool,
 }
 
 // =========================================================================
@@ -108,6 +135,30 @@ pub struct Settings {
     pub quiz_choice: String, 
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct QuizResultSummary {
+    pub id: ObjectId,
+    pub quiz_title: String,
+    pub completed_at: DateTime<Utc>,
+    pub score_correct: i32,
+    pub score_total: i32,
+    pub timed_out_count: i32,
+    pub user_email: String,
+}
+
+// =========================================================================
+// 6. DISCUSSION MESSAGES
+// =========================================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct DiscussionMessage {
+    #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
+    pub id: Option<ObjectId>,
+    pub user_email: String,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+}
+
 #[cfg(feature = "server")]
 pub mod db_init {
     use super::*;
@@ -126,6 +177,10 @@ pub mod db_init {
         let account_options = IndexOptions::builder().unique(true).build();
         let account_index = IndexModel::builder().keys(doc! { "email": 1 }).options(account_options).build();
         account_coll.create_index(account_index).await?;
+
+        let discussion_coll = db.collection::<DiscussionMessage>("discussion_messages");
+        let discussion_index = IndexModel::builder().keys(doc! { "created_at": -1 }).build();
+        discussion_coll.create_index(discussion_index).await?;
 
         Ok(())
     }

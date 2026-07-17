@@ -231,6 +231,9 @@ fn upsert_account_locally(account: Account) -> Result<bson::oid::ObjectId, Serve
 pub async fn create_quiz(quiz: Quiz) -> Result<bson::oid::ObjectId, ServerFnError> {
     use mongodb::error::{ErrorKind, WriteFailure};
 
+    // Validate the quiz using model constraints
+    quiz.validate().map_err(|e| ServerFnError::new(e))?;
+
     let quiz_for_storage = quiz.clone();
     let db = try_db!("create_quiz", persist_quiz_locally(quiz_for_storage));
 
@@ -771,4 +774,207 @@ fn extract_session_token(headers: &HeaderMap) -> Option<String> {
         }
     }
     None
+}
+
+#[server(endpoint = "/api/user-results-summary", headers: dioxus::fullstack::HeaderMap)]
+pub async fn get_user_results_summary() -> Result<Vec<QuizResultSummary>, ServerFnError> {
+    use crate::models::QuizResultSummary;
+    use chrono::Utc;
+    use bson::oid::ObjectId;
+
+    // 1. Get current authenticated user
+    let user = get_current_user().await?.ok_or_else(|| ServerFnError::new("Not authenticated"))?;
+    let user_id = user.id.ok_or_else(|| ServerFnError::new("User missing ID"))?;
+
+    // 2. Fetch submissions for this account
+    let submissions = get_submissions(Some(user_id)).await?;
+
+    // 3. Fetch all quizzes
+    let quizzes = get_quizzes().await?;
+
+    let mut summaries = Vec::new();
+    for sub in submissions {
+        let quiz_opt = quizzes.iter().find(|q| q.id == Some(sub.quiz_id));
+        
+        let mut score_correct = 0;
+        let mut score_total = 0;
+        let mut timed_out_count = 0;
+
+        if let Some(quiz) = quiz_opt {
+            score_total = quiz.questions.len() as i32;
+            for ans in &sub.answers {
+                if ans.timed_out {
+                    timed_out_count += 1;
+                } else if let Some(question) = quiz.questions.iter().find(|q| q.id == ans.question_id) {
+                    if let Some(correct_choice) = question.answer_choices.iter().find(|c| c.correct_response) {
+                        if ans.text == correct_choice.text {
+                            score_correct += 1;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Fallback if quiz not found
+            score_total = sub.answers.len() as i32;
+            for ans in &sub.answers {
+                if ans.timed_out {
+                    timed_out_count += 1;
+                }
+            }
+        }
+
+        let completed_at = sub.answers.iter().map(|a| a.completed).max().unwrap_or_else(|| Utc::now());
+
+        summaries.push(QuizResultSummary {
+            id: sub.id.unwrap_or_else(ObjectId::new),
+            quiz_title: sub.quiz_title,
+            completed_at,
+            score_correct,
+            score_total,
+            timed_out_count,
+            user_email: sub.email.clone(),
+        });
+    }
+
+    Ok(summaries)
+}
+
+#[server(endpoint = "/api/all-results-summary", headers: dioxus::fullstack::HeaderMap)]
+pub async fn get_all_results_summary() -> Result<Vec<QuizResultSummary>, ServerFnError> {
+    use crate::models::QuizResultSummary;
+    use chrono::Utc;
+    use bson::oid::ObjectId;
+
+    // Fetch all submissions
+    let submissions = get_submissions(None).await?;
+
+    // Fetch all quizzes
+    let quizzes = get_quizzes().await?;
+
+    let mut summaries = Vec::new();
+    for sub in submissions {
+        let quiz_opt = quizzes.iter().find(|q| q.id == Some(sub.quiz_id));
+        
+        let mut score_correct = 0;
+        let mut score_total = 0;
+        let mut timed_out_count = 0;
+
+        if let Some(quiz) = quiz_opt {
+            score_total = quiz.questions.len() as i32;
+            for ans in &sub.answers {
+                if ans.timed_out {
+                    timed_out_count += 1;
+                } else if let Some(question) = quiz.questions.iter().find(|q| q.id == ans.question_id) {
+                    if let Some(correct_choice) = question.answer_choices.iter().find(|c| c.correct_response) {
+                        if ans.text == correct_choice.text {
+                            score_correct += 1;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Fallback if quiz not found
+            score_total = sub.answers.len() as i32;
+            for ans in &sub.answers {
+                if ans.timed_out {
+                    timed_out_count += 1;
+                }
+            }
+        }
+
+        let completed_at = sub.answers.iter().map(|a| a.completed).max().unwrap_or_else(|| Utc::now());
+
+        summaries.push(QuizResultSummary {
+            id: sub.id.unwrap_or_else(ObjectId::new),
+            quiz_title: sub.quiz_title,
+            completed_at,
+            score_correct,
+            score_total,
+            timed_out_count,
+            user_email: sub.email.clone(),
+        });
+    }
+
+    // Sort by most recently completed
+    summaries.sort_by(|a, b| b.completed_at.cmp(&a.completed_at));
+
+    Ok(summaries)
+}
+
+#[cfg(feature = "server")]
+static DISCUSSION_STORE: OnceLock<Mutex<Vec<crate::models::DiscussionMessage>>> = OnceLock::new();
+
+#[cfg(feature = "server")]
+fn discussion_store() -> &'static Mutex<Vec<crate::models::DiscussionMessage>> {
+    DISCUSSION_STORE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[cfg(feature = "server")]
+fn local_discussions() -> Vec<crate::models::DiscussionMessage> {
+    discussion_store().lock().unwrap().clone()
+}
+
+#[cfg(feature = "server")]
+fn persist_discussion_locally(mut msg: crate::models::DiscussionMessage) -> Result<bson::oid::ObjectId, ServerFnError> {
+    let id = bson::oid::ObjectId::new();
+    msg.id = Some(id);
+    discussion_store().lock().unwrap().push(msg);
+    Ok(id)
+}
+
+#[server(endpoint = "/api/discussions", headers: dioxus::fullstack::HeaderMap)]
+pub async fn get_discussion_messages() -> Result<Vec<crate::models::DiscussionMessage>, ServerFnError> {
+    use futures_util::TryStreamExt;
+    use mongodb::options::FindOptions;
+    use mongodb::bson::doc;
+
+    let db = try_db!("get_discussion_messages", Ok(local_discussions()));
+    let coll = db.collection::<crate::models::DiscussionMessage>("discussion_messages");
+    
+    // Sort by created_at descending, limit to 100 to avoid giant loads
+    let find_options = FindOptions::builder()
+        .sort(doc! { "created_at": -1 })
+        .limit(100)
+        .build();
+
+    let mut cursor = match coll.find(doc! {}).with_options(find_options).await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to fetch discussions from db: {}", e);
+            return Ok(local_discussions());
+        }
+    };
+
+    let mut msgs = Vec::new();
+    while let Some(msg) = cursor.try_next().await.map_err(|e| ServerFnError::new(e.to_string()))? {
+        msgs.push(msg);
+    }
+    
+    // Reverse them so they are chronological (oldest to newest) when rendering
+    msgs.reverse();
+
+    Ok(msgs)
+}
+
+#[server(endpoint = "/api/discussions/create", headers: dioxus::fullstack::HeaderMap)]
+pub async fn create_discussion_message(content: String) -> Result<bson::oid::ObjectId, ServerFnError> {
+    use crate::models::DiscussionMessage;
+    use chrono::Utc;
+    use bson::oid::ObjectId;
+
+    let user = get_current_user().await?.ok_or_else(|| ServerFnError::new("Not authenticated"))?;
+    
+    let msg = DiscussionMessage {
+        id: None,
+        user_email: user.email.clone(),
+        content,
+        created_at: Utc::now(),
+    };
+
+    let db = try_db!("create_discussion", persist_discussion_locally(msg.clone()));
+    let coll = db.collection::<DiscussionMessage>("discussion_messages");
+    
+    let result = coll.insert_one(msg).await.map_err(|e| ServerFnError::new(e.to_string()))?;
+    
+    result.inserted_id.as_object_id().ok_or_else(|| ServerFnError::new("MongoDB returned non-ObjectId"))
 }
