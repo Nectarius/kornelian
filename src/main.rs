@@ -162,7 +162,8 @@ fn main() {
                     .route("/auth/twitter", get(twitter_auth_handler))
                     .route("/auth/twitter/callback", get(twitter_callback_handler))
                     .route("/auth/logout", get(logout_handler))
-                    .route("/api/export/pdf/{title}", get(export_pdf_handler));
+                    .route("/api/export/pdf/{title}", get(export_pdf_handler))
+                    .route("/api/notes/{username}", get(get_user_notes_handler));
 
                 let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 443));
                 let cert_path = "kornelian.com.pem";
@@ -232,7 +233,8 @@ fn main() {
                     .route("/auth/twitter", get(twitter_auth_handler))
                     .route("/auth/twitter/callback", get(twitter_callback_handler))
                     .route("/auth/logout", get(logout_handler))
-                    .route("/api/export/pdf/{title}", get(export_pdf_handler));
+                    .route("/api/export/pdf/{title}", get(export_pdf_handler))
+                    .route("/api/notes/{username}", get(get_user_notes_handler));
 
                 Ok(router)
             });
@@ -380,4 +382,45 @@ async fn export_pdf_handler(dioxus::server::axum::extract::Path(quiz_title): dio
     ];
     
     (headers, buf).into_response()
+}
+
+#[cfg(feature = "server")]
+async fn get_user_notes_handler(dioxus::server::axum::extract::Path(username): dioxus::server::axum::extract::Path<String>) -> dioxus::server::axum::response::Response {
+    use dioxus::server::axum::response::IntoResponse;
+    use dioxus::server::axum::http::StatusCode;
+    use dioxus::server::axum::Json;
+    use mongodb::bson::doc;
+    use futures_util::TryStreamExt;
+    
+    let db = match crate::db::database::get_db().await {
+        Ok(db) => db,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response(),
+    };
+    
+    let account_coll = db.collection::<crate::models::Account>("accounts");
+    
+    let account = match account_coll.find_one(doc! { "email": &username }).await {
+        Ok(Some(acc)) => acc,
+        Ok(None) => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response(),
+    };
+    
+    let account_id = match account.id {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+    };
+    
+    let notes_coll = db.collection::<crate::models::Note>("notes");
+    
+    let mut cursor = match notes_coll.find(doc! { "account_id": account_id }).await {
+        Ok(c) => c,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response(),
+    };
+    
+    let mut notes = Vec::new();
+    while let Ok(Some(note)) = cursor.try_next().await {
+        notes.push(note);
+    }
+    
+    (StatusCode::OK, Json(notes)).into_response()
 }
